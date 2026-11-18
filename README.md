@@ -1,6 +1,6 @@
 # SmartEdu-DoFee 学习进度监控器
 
-> 当前版本：**v1.17.1** ｜ 开源协议：[GNU General Public License v3.0 (GPL-3.0)](./LICENSE)
+> 当前版本：**v1.17.2** ｜ 开源协议：[GNU General Public License v3.0 (GPL-3.0)](./LICENSE)
 
 **SmartEdu-DoFee 学习进度监控器** 是一款配合**国家中小学智慧教育平台**（`basic.smartedu.cn`）与 **DoFee 学习系统** 使用的浏览器插件。安装后，它会在后台默默帮你统计真实有效的看课时长、同步教材目录与学习记录，还可以一键开启错题与习题整理，让你和家长随时掌握学习进度。
 

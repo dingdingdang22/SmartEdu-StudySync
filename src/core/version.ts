@@ -7,7 +7,7 @@
  * 3. 任何功能更新、Bug修复或发布构建时，遵循 SemVer 升级版本号，并同步更新此文件、package.json 与 README.md。
  */
 
-export const APP_VERSION = '1.17.1';
+export const APP_VERSION = '1.17.2';
 export const DISPLAY_VERSION = `v${APP_VERSION}`;
 export const APP_NAME = 'SmartEdu-DoFee 监控器';
 

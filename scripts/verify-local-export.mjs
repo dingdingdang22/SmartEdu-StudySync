@@ -163,8 +163,6 @@ try {
   assert.strictEqual(rows[1].statusText, '进行中');
   assert.strictEqual(rows[1].progressPct, 45);
   assert.strictEqual(rows[1].watchedSeconds, 280);
-  assert.strictEqual(rows[1].realPlayedSeconds, '250');
-  assert.strictEqual(rows[1].durationSeconds, '600');
   assert.strictEqual(rows[1].updatedAt, exportMod.formatCsvDateTime('2026-11-18T09:35:00.000Z'));
 
   assert.strictEqual(rows[2].lessonTitle, '1.3 有理数的加减法');
@@ -174,7 +172,10 @@ try {
 
   const csvText = exportMod.buildCsvTextFromRows(rows);
   assert.ok(csvText.startsWith('\uFEFF'), 'CSV 必须以 UTF-8 BOM 开头');
-  assert.ok(csvText.includes('教材名称,教材目录(章),教材目录(节),课时名称,学习状态,观看进度(%),观看时长(秒),本地有效学习(秒),视频总时长(秒),最后观看时间'), 'CSV 必须包含完整表头');
+  assert.ok(csvText.includes('智慧平台账号,智慧平台用户ID,教材名称,教材目录(章),教材目录(节),课时名称,学习状态,观看进度(%),观看时长(秒),最后观看时间'), 'CSV 必须包含精简后的 10 列表头');
+  for (const hiddenCol of ['本地有效学习(秒)', '视频总时长(秒)', '教材ID', '课时ID']) {
+    assert.ok(!csvText.includes(hiddenCol), `CSV 不得包含已移除列: ${hiddenCol}`);
+  }
   console.log('   ✅ 教材目录、观看进度与最后观看时间导出验证通过');
 
   // 4. 错题本与习题类资源过滤（绝不导出错题和习题）

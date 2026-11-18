@@ -68,11 +68,7 @@ export const STUDY_CSV_HEADERS = [
   '学习状态',
   '观看进度(%)',
   '观看时长(秒)',
-  '本地有效学习(秒)',
-  '视频总时长(秒)',
-  '最后观看时间',
-  '教材ID',
-  '课时ID'
+  '最后观看时间'
 ] as const;
 
 export interface PlatformStudyItem {
@@ -99,11 +95,7 @@ export interface StudyCsvRow {
   statusText: '已完成' | '进行中' | '未学习';
   progressPct: number;
   watchedSeconds: number;
-  realPlayedSeconds: string;
-  durationSeconds: string;
   updatedAt: string;
-  tmId: string;
-  resourceId: string;
 }
 
 export interface StudyCsvExportResult {
@@ -195,8 +187,6 @@ function resolveProgressRowValues(
   statusText: '已完成' | '进行中' | '未学习';
   progressPct: number;
   watchedSeconds: number;
-  realPlayedSeconds: string;
-  durationSeconds: string;
   updatedAt: string;
 } {
   if (!platform && !local) {
@@ -204,8 +194,6 @@ function resolveProgressRowValues(
       statusText: '未学习',
       progressPct: 0,
       watchedSeconds: 0,
-      realPlayedSeconds: '',
-      durationSeconds: '',
       updatedAt: ''
     };
   }
@@ -223,12 +211,6 @@ function resolveProgressRowValues(
   const localPosSec = local ? Math.max(0, Math.round(Number(local.position_seconds || 0))) : 0;
   const watchedSeconds = platformSec > 0 ? platformSec : localPosSec;
 
-  const realPlayedSeconds = local && local.real_played_seconds >= 0
-    ? String(Math.round(local.real_played_seconds))
-    : '';
-  const durationSeconds = local && local.duration_seconds > 0
-    ? String(Math.round(local.duration_seconds))
-    : '';
   const updatedAt = formatCsvDateTime(
     pickLatestIsoTime(platform?.platform_updated_at || platform?.platform_created_at, local?.updated_at)
   );
@@ -237,8 +219,6 @@ function resolveProgressRowValues(
     statusText: isCompleted ? '已完成' : '进行中',
     progressPct,
     watchedSeconds,
-    realPlayedSeconds,
-    durationSeconds,
     updatedAt
   };
 }
@@ -311,11 +291,7 @@ export function mergeTextbookCatalogWithProgress(opts: {
         statusText: val.statusText,
         progressPct: val.progressPct,
         watchedSeconds: val.watchedSeconds,
-        realPlayedSeconds: val.realPlayedSeconds,
-        durationSeconds: val.durationSeconds,
-        updatedAt: val.updatedAt,
-        tmId,
-        resourceId: ridRaw
+        updatedAt: val.updatedAt
       });
     }
   }
@@ -350,11 +326,7 @@ export function mergeTextbookCatalogWithProgress(opts: {
       statusText: val.statusText,
       progressPct: val.progressPct,
       watchedSeconds: val.watchedSeconds,
-      realPlayedSeconds: val.realPlayedSeconds,
-      durationSeconds: val.durationSeconds,
-      updatedAt: val.updatedAt,
-      tmId,
-      resourceId: ridRaw
+      updatedAt: val.updatedAt
     });
   }
 
@@ -379,11 +351,7 @@ export function buildCsvTextFromRows(rows: StudyCsvRow[]): string {
       r.statusText,
       r.progressPct,
       r.watchedSeconds,
-      r.realPlayedSeconds,
-      r.durationSeconds,
-      r.updatedAt,
-      r.tmId,
-      r.resourceId
+      r.updatedAt
     ].map(csvEscape).join(','));
   }
   return '\uFEFF' + lines.join('\r\n') + '\r\n';
