@@ -18,3 +18,7 @@ Thumbs.db
 .vscode/
 .idea/
 .workbuddy/
+
+# 本地内部开发规范文档（不上传至 GitHub）
+VERSION_GUIDE.md
+
