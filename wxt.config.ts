@@ -76,7 +76,7 @@ export default defineConfig({
           128: 'icon/128.png',
         },
       },
-      permissions: ['storage', 'alarms', 'declarativeNetRequest', 'tabs'],
+      permissions: ['storage', 'alarms', 'tabs'],
       host_permissions: [
         'https://basic.smartedu.cn/*',
         'https://*.smartedu.cn/*',
@@ -88,8 +88,7 @@ export default defineConfig({
       ],
       optional_host_permissions: [
         'https://*/*',
-        'http://localhost:*/*',
-        'http://127.0.0.1:*/*',
+        ...(isDev ? ['http://localhost:*/*', 'http://127.0.0.1:*/*'] : []),
       ],
     };
   },

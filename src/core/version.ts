@@ -2,12 +2,12 @@
  * version.ts - 插件版本中心与单一事实源 (Single Source of Truth)
  * 
  * 规范守则：
- * 1. 本文件 APP_VERSION 必须与 package.json 中的 version 保持 100% 绝对一致。
+ * 1. 本文件 APP_VERSION 必须与 package.json 中的 version 保持 100% 绝对一致，且须同步更新 README.md。
  * 2. 界面顶部横幅、标题栏徽标、折叠胶囊、控制台欢迎横幅与自检句柄均统一引用本模块。
- * 3. 任何功能更新、Bug修复或发布构建时，遵循 SemVer 升级版本号，并同步更新此文件与 package.json。
+ * 3. 任何功能更新、Bug修复或发布构建时，遵循 SemVer 升级版本号，并同步更新此文件、package.json 与 README.md。
  */
 
-export const APP_VERSION = '1.16.4';
+export const APP_VERSION = '1.16.5';
 export const DISPLAY_VERSION = `v${APP_VERSION}`;
 export const APP_NAME = 'SmartEdu-DoFee 监控器';
 
