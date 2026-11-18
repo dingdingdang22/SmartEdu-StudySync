@@ -120,14 +120,19 @@ export default defineBackground(() => {
         }
       });
 
-      // 无论 alarm 是否已存在都强制重建一次：保证周期从 30 分钟收敛到 1 分钟（旧版本遗留 alarm 的兼容）
+      const manifest = (typeof chrome !== 'undefined' && chrome.runtime?.getManifest) ? chrome.runtime.getManifest() : null;
+      const isStoreManaged = Boolean(manifest && 'update_url' in manifest);
+
+      // 仅在未打包（无 update_url）模式下启用 1 分钟磁盘探针轮询；商店托管版交由 Chrome 官方更新机制处理
       chrome.alarms.get(UPDATE_CHECK_ALARM_NAME, (alarm) => {
         if (alarm) chrome.alarms.clear(UPDATE_CHECK_ALARM_NAME);
-        chrome.alarms.create(UPDATE_CHECK_ALARM_NAME, {
-          periodInMinutes: UPDATE_CHECK_INTERVAL_MINUTES,
-          delayInMinutes: 1
-        });
-        console.log(`[AutoUpdate] 磁盘探针自检闹钟已注册，周期：${UPDATE_CHECK_INTERVAL_MINUTES} 分钟`);
+        if (!isStoreManaged) {
+          chrome.alarms.create(UPDATE_CHECK_ALARM_NAME, {
+            periodInMinutes: UPDATE_CHECK_INTERVAL_MINUTES,
+            delayInMinutes: 1
+          });
+          console.log(`[AutoUpdate] 磁盘探针自检闹钟已注册，周期：${UPDATE_CHECK_INTERVAL_MINUTES} 分钟`);
+        }
       });
 
       chrome.alarms.onAlarm.addListener((alarm) => {
@@ -148,8 +153,10 @@ export default defineBackground(() => {
       // 这一步是「扩展已重载、但旧页面还跑着旧 content script」场景下提示能亮起的关键。
       this.registerAppliedBuild().catch(() => {});
 
-      // 唤醒即刻对账一次：磁盘若已换新，立刻触发重载，不必等下一轮闹钟（最长省 1 分钟延迟）
-      this.runUpdateCheckCycle().catch(() => {});
+      // 未打包模式下唤醒即刻对账一次：磁盘若已换新，立刻触发重载，不必等下一轮闹钟（最长省 1 分钟延迟）
+      if (!isStoreManaged) {
+        this.runUpdateCheckCycle().catch(() => {});
+      }
 
       // 方案 A + B 融合：监听新版产物已就绪
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onUpdateAvailable) {
@@ -629,13 +636,14 @@ export default defineBackground(() => {
     }
 
     /**
-     * 向所有标签页广播（不再限定 smartedu 域名，任何开着旧 content script 的页面都要通知）。
-     * chrome:// 等无权限页面 sendMessage 会失败，静默忽略即可。
+     * 向已授权的智慧平台标签页广播（避免无权限读取无关标签页，无感跳过不可达页面）。
      */
     private async broadcastToAllTabs(type: string, version: string) {
       let tabs: chrome.tabs.Tab[] = [];
       try {
-        tabs = await chrome.tabs.query({});
+        tabs = await chrome.tabs.query({
+          url: ['https://basic.smartedu.cn/*', 'https://*.smartedu.cn/*', 'https://*.eduyun.cn/*', 'https://*.cbern.com.cn/*']
+        });
       } catch {
         return;
       }

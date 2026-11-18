@@ -9,7 +9,7 @@
 
 export const APP_VERSION = '1.17.2';
 export const DISPLAY_VERSION = `v${APP_VERSION}`;
-export const APP_NAME = 'SmartEdu-DoFee 监控器';
+export const APP_NAME = '国家中小学智慧教育平台自学记录同步';
 
 /**
  * 构建期注入的 buildId（由 wxt.config.ts 的 version-probe 生成器通过 Vite define 注入）。

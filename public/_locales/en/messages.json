@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "SmartEdu StudySync"
+  },
+  "extDesc": {
+    "message": "Track genuine video study duration, sync textbook catalogs and opt-in exercises from SmartEdu to your self-hosted learning backend or local CSV."
+  }
+}

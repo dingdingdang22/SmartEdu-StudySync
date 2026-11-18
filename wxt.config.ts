@@ -59,8 +59,9 @@ export default defineConfig({
   manifest: (env) => {
     const isDev = env.mode === 'development';
     return {
-      name: 'SmartEdu-DoFee 学习进度监控器',
-      description: '监控国家中小学智慧教育平台「课程教学 - 学生自主学习」页面的真实播放进度并上报至 dofee 学习系统。',
+      default_locale: 'zh_CN',
+      name: '__MSG_extName__',
+      description: '__MSG_extDesc__',
       icons: {
         16: 'icon/16.png',
         32: 'icon/32.png',
@@ -68,7 +69,7 @@ export default defineConfig({
         128: 'icon/128.png',
       },
       action: {
-        default_title: 'SmartEdu-DoFee 学习进度监控器',
+        default_title: '__MSG_extName__',
         default_icon: {
           16: 'icon/16.png',
           32: 'icon/32.png',
@@ -76,7 +77,7 @@ export default defineConfig({
           128: 'icon/128.png',
         },
       },
-      permissions: ['storage', 'alarms', 'tabs', 'downloads'],
+      permissions: ['storage', 'alarms', 'downloads'],
       host_permissions: [
         'https://basic.smartedu.cn/*',
         'https://*.smartedu.cn/*',

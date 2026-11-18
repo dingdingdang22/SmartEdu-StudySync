@@ -1,11 +1,11 @@
 {
-  "name": "smartedu-dofee-plugin",
+  "name": "smartedu-studysync",
   "version": "1.17.2",
-  "description": "SmartEdu-DoFee 学习进度监控与智能错题库管理扩展 (Next-Gen WXT 现代化架构)",
+  "description": "国家中小学智慧教育平台自学记录同步 (SmartEdu StudySync) — 学习进度监控、教材目录同步、错题整理与本地 CSV 导出扩展",
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dingdingdang22/splugin.git"
+    "url": "https://github.com/dingdingdang22/SmartEdu-StudySync.git"
   },
   "type": "module",
   "scripts": {

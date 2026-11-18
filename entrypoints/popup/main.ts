@@ -482,7 +482,7 @@ class PopupController {
 
     const activeAccountLabel = this.config.dofeeUsername
       ? `激活: ${this.config.dofeeUsername}`
-      : '未激活 dofee';
+      : '未激活学习系统';
 
     this.rootEl.innerHTML = `
       <div class="card-top-bar ${this.isUpdateReady ? 'update-ready' : ''}">
@@ -574,7 +574,7 @@ class PopupController {
         slotsHtml += `
           <div class="slot-card ${isSlotActive ? 'active' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <span style="font-weight:700;font-size:12px;color:#1e293b;">槽位 #${i + 1}：dofee2 [${esc(slot.dofeeUsername)}]</span>
+              <span style="font-weight:700;font-size:12px;color:#1e293b;">槽位 #${i + 1}：学习系统 [${esc(slot.dofeeUsername)}]</span>
               <span class="${isSlotActive ? 'slot-badge-active' : 'slot-badge-idle'}">
                 ${isSlotActive ? '🟢 当前激活' : '⚪ 待命'}
               </span>
@@ -606,8 +606,8 @@ class PopupController {
                 <div style="font-size:11px;color:#0369a1;font-weight:600;margin-bottom:6px;">
                   绑定当前登录用户 [${esc(currentSmartedu!.display_name)}] 到该槽位:
                 </div>
-                <input type="text" class="input-field" id="new-slot-user" placeholder="输入 dofee2 学员用户名">
-                <input type="password" class="input-field" id="new-slot-pwd" placeholder="输入 dofee2 账户密码">
+                <input type="text" class="input-field" id="new-slot-user" placeholder="输入自建学习系统学员用户名">
+                <input type="password" class="input-field" id="new-slot-pwd" placeholder="输入自建学习系统账户密码">
                 <button class="btn btn-primary" id="new-slot-bind-btn" style="width:100%;padding:6px 0;" ${this.busyActions.has('BIND_SLOT') ? 'disabled' : ''}>
                   ${this.busyActions.has('BIND_SLOT') ? '绑定处理中...' : '🔐 验证登录并建立一对一绑定'}
                 </button>
@@ -676,9 +676,9 @@ class PopupController {
         <div style="margin-top:8px;">${slotsHtml}</div>
       </div>
 
-      <!-- DOFFEE网站域名 / API 地址 -->
+      <!-- 自建学习系统域名 / API 地址 -->
       <div class="section">
-        <div class="section-title">DOFFEE网站域名 / API 地址</div>
+        <div class="section-title">自建学习系统域名 / API 地址</div>
         <input type="text" class="input-field" id="cfg-url" placeholder="请输入自建服务端地址，如 https://your-domain.example" value="${esc(config.dofeeApiBase || '')}">
         <div class="btn-group">
           <button class="btn btn-primary" id="save-url-btn">保存域名</button>
@@ -722,9 +722,9 @@ class PopupController {
     return `
       <div class="modal-overlay" id="unbind-overlay">
         <div class="modal-card">
-          <div class="modal-title">🔐 解绑需要验证 dofee 账户密码</div>
-          <div class="modal-desc">即将解除绑定：dofee2 账号 [${esc(m.username)}] ↔ 智慧平台 [${esc(m.smarteduName)}]。请输入 dofee 账户密码确认。</div>
-          <input type="password" class="input-field" id="unbind-pwd-input" placeholder="dofee 账户密码" autocomplete="current-password" />
+          <div class="modal-title">🔐 解绑需要验证学习系统账户密码</div>
+          <div class="modal-desc">即将解除绑定：学习系统账号 [${esc(m.username)}] ↔ 智慧平台 [${esc(m.smarteduName)}]。请输入该学习系统账户密码确认。</div>
+          <input type="password" class="input-field" id="unbind-pwd-input" placeholder="自建学习系统账户密码" autocomplete="current-password" />
           <div class="modal-err">${esc(m.error)}</div>
           <div class="btn-group">
             <button class="btn btn-secondary" id="unbind-cancel-btn" ${m.busy ? 'disabled' : ''}>取消解绑</button>
@@ -744,7 +744,7 @@ class PopupController {
           <div class="modal-title">⚠️ 检测到智慧平台登录用户已变更！</div>
           <div class="modal-pill">上次写入用户：${esc(p.previous.display_name)}（ID ${esc(p.previous.user_id)}）</div>
           <div class="modal-pill warn">当前登录用户：${esc(p.current.display_name)}（ID ${esc(p.current.user_id)}）</div>
-          <div class="modal-desc">继续将把「${esc(p.current.display_name)}」的学习数据写入当前 dofee 账号（${esc(p.action)}），且写入后不可回滚。确定继续吗？</div>
+          <div class="modal-desc">继续将把「${esc(p.current.display_name)}」的学习数据写入当前自建学习系统账号（${esc(p.action)}），且写入后不可回滚。确定继续吗？</div>
           <div class="btn-group">
             <button class="btn btn-secondary" id="switch-cancel-btn">取消导入</button>
             <button class="btn btn-danger" id="switch-ok-btn">继续导入（有风险）</button>
@@ -878,13 +878,13 @@ class PopupController {
     });
     newSlotBindBtn?.addEventListener('click', async () => {
       if (!this.config?.dofeeApiBase?.trim()) {
-        this.showToast('warn', '请先在下方「DOFFEE网站域名 / API 地址」中配置并保存服务端域名');
+        this.showToast('warn', '请先在下方「自建学习系统域名 / API 地址」中配置并保存服务端域名');
         return;
       }
       const u = ($('new-slot-user') as HTMLInputElement | null)?.value.trim() || '';
       const p = ($('new-slot-pwd') as HTMLInputElement | null)?.value || '';
       if (!u || !p) {
-        this.showToast('warn', '请输入 dofee2 学员用户名与密码');
+        this.showToast('warn', '请输入自建学习系统学员用户名与密码');
         return;
       }
       const identity = this.diagSnap?.currentSmartedu;
@@ -898,7 +898,7 @@ class PopupController {
         return;
       }
       if (slots.some((s) => s.dofeeUsername === u)) {
-        this.showToast('warn', `dofee2 账号 [${u}] 已绑定在其他槽位，不能重复绑定`);
+        this.showToast('warn', `学习系统账号 [${u}] 已绑定在其他槽位，不能重复绑定`);
         return;
       }
       if (slots.some((s) => s.smarteduUserId === identity.user_id)) {
@@ -911,7 +911,7 @@ class PopupController {
       try {
         const loginRes = await uploader.login(u, p, { noSaveToConfig: true });
         if (!loginRes.success || !loginRes.token) {
-          this.showToast('error', `dofee2 登录校验失败: ${loginRes.error || '用户名或密码错误'}`);
+          this.showToast('error', `学习系统登录校验失败: ${loginRes.error || '用户名或密码错误'}`);
           return;
         }
         const bindRes = await smarteduBinding.bind(identity, { token: loginRes.token, username: u });
@@ -929,7 +929,7 @@ class PopupController {
         });
         storage.activateSlotBySmarteduUserId(identity.user_id);
         this.config = storage.getConfig();
-        this.showToast('success', `绑定成功！[${identity.display_name}] ↔ dofee2 [${u}]`);
+        this.showToast('success', `绑定成功！[${identity.display_name}] ↔ 学习系统 [${u}]`);
 
         const syncCfg = storage.getConfig();
         if (syncCfg.syncWrongBook === true || syncCfg.syncMyExercises === true) {

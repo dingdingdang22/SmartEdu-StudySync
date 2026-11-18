@@ -339,10 +339,10 @@ export async function ensureImportUserConsistent(opts: {
   // 若存在已绑槽位，但当前智慧平台登录用户不在任何槽位中 -> 硬拒绝，零写入
   if (boundSlots.length > 0 && !activeSlot) {
     const boundListText = boundSlots
-      .map((s, idx) => `  槽位 #${idx + 1}: ${s.smarteduDisplayName || '用户' + s.smarteduUserId} ↔ dofee2 [${s.dofeeUsername}]`)
+      .map((s, idx) => `  槽位 #${idx + 1}: ${s.smarteduDisplayName || '用户' + s.smarteduUserId} ↔ 学习系统 [${s.dofeeUsername}]`)
       .join('\n');
     const message = [
-      '⛔ 当前智慧平台登录用户尚未绑定到任何 dofee2 账户，导入已完全中止（未产生任何写入）！',
+      '⛔ 当前智慧平台登录用户尚未绑定到任何自建学习系统账户，导入已完全中止（未产生任何写入）！',
       '',
       `当前登录用户：${current.display_name}（ID ${current.user_id}）`,
       '',
@@ -375,9 +375,9 @@ export async function ensureImportUserConsistent(opts: {
     if (consistency.state === 'mismatch' && consistency.binding) {
       const bound = consistency.binding;
       const message = [
-        '⛔ 当前智慧平台用户与 dofee2 账户服务端绑定不一致，导入已完全中止（未产生任何写入）！',
+        '⛔ 当前智慧平台用户与自建学习系统账户服务端绑定不一致，导入已完全中止（未产生任何写入）！',
         '',
-        `dofee2 账户：${activeSlot.dofeeUsername}`,
+        `学习系统账户：${activeSlot.dofeeUsername}`,
         `服务端绑定用户：${bound.smartedu_display_name || '用户' + bound.smartedu_user_id}（ID ${bound.smartedu_user_id}）`,
         `当前登录用户：${current.display_name}（ID ${current.user_id}）`,
         '',
