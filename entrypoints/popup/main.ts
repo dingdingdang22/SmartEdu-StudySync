@@ -121,7 +121,6 @@ class PopupController {
 
   private isUpdateReady = false;
   private pendingVersion: string | null = null;
-  private checkStatusText = '热更新已生效';
 
   private toast: ToastState | null = null;
   private unbindModal: UnbindModalState | null = null;
@@ -350,13 +349,7 @@ class PopupController {
             <span style="color:#fef3c7;font-weight:700;">新版已就绪:</span>
             <button class="top-action-btn" id="top-reload-btn" title="重载扩展并刷新当前页启用新版">🔄 重载生效</button>
           </div>
-        ` : `
-          <div class="top-sync-indicator">
-            <span class="top-indicator-dot"></span>
-            <span id="top-indicator-text">${esc(this.checkStatusText)}</span>
-            <span class="top-check-link" id="top-check-btn">检查</span>
-          </div>
-        `}
+        ` : ''}
       </div>
 
       <div class="context-bar">
@@ -606,30 +599,7 @@ class PopupController {
       this.render();
     });
 
-    // 顶部检查更新 / 重载
-    $('top-check-btn')?.addEventListener('click', async () => {
-      const indText = $('top-indicator-text');
-      if (indText) indText.textContent = '检测中...';
-      const res = await sendRuntimeMessage({ type: 'CHECK_EXTENSION_UPDATE' });
-      if (res && res.status === 'update_available') {
-        this.isUpdateReady = true;
-        this.pendingVersion = res.version || '最新版';
-        this.render();
-      } else if (res && res.status === 'no_update') {
-        this.checkStatusText = '已是最新版';
-        this.render();
-        setTimeout(() => { this.checkStatusText = '热更新已生效'; this.render(); }, 2500);
-      } else if (res && res.isLocal) {
-        this.checkStatusText = '本地开发 (HMR生效)';
-        this.render();
-        setTimeout(() => { this.checkStatusText = '热更新已生效'; this.render(); }, 3000);
-      } else {
-        this.checkStatusText = '已就绪 (本地模式)';
-        this.render();
-        setTimeout(() => { this.checkStatusText = '热更新已生效'; this.render(); }, 2500);
-      }
-    });
-
+    // 顶部重载生效
     $('top-reload-btn')?.addEventListener('click', async () => {
       await sendRuntimeMessage({ type: 'APPLY_EXTENSION_UPDATE' });
       if (this.tabConnected && this.activeTabId !== null) {
