@@ -31,6 +31,7 @@ try {
   const exportMod = await loadTsModule('src/features/study-record-export.ts');
   const localExportMod = await loadTsModule('src/core/local-export.ts');
   const syncMod = await loadTsModule('src/features/study-record-sync.ts');
+  const catalogMod = await loadTsModule('src/features/catalog-sync.ts');
 
   // 1. 文件名按智慧平台账号命名与非法字符清理
   console.log('▶ [测试 1] 按智慧平台账号命名 CSV 文件与非法字符清理');
@@ -202,6 +203,69 @@ try {
   assert.strictEqual(localExportMod.doesDirMatchBoundHandle('D:\\学习记录', '学习记录'), true);
   assert.strictEqual(localExportMod.doesDirMatchBoundHandle('D:\\新目录', '学习记录'), false);
   console.log('   ✅ 本地路径解析与安全规范化通过');
+
+  // 6. 教材名称提取（tag_list 对象数组）与占位符屏蔽回归
+  console.log('▶ [测试 6] 教材 tag_list 对象解析与占位符屏蔽');
+  const extractedMeta = catalogMod.extractBookMetaFromResources([
+    {
+      id: 'res-math-1',
+      tag_list: [
+        { tag_dimension_id: 'zxxxd', tag_name: '小学' },
+        { tag_dimension_id: 'zxxxk', tag_name: '数学' },
+        { tag_dimension_id: 'zxxnj', tag_name: '三年级' },
+        { tag_dimension_id: 'zxxbb', tag_name: '人教版' },
+        { tag_dimension_id: 'zxxcc', tag_name: '下册' }
+      ]
+    }
+  ]);
+  assert.strictEqual(extractedMeta.subjectCn, '数学');
+  assert.strictEqual(extractedMeta.gradeCn, '三年级');
+  assert.strictEqual(extractedMeta.edition, '人教版');
+  assert.strictEqual(extractedMeta.volume, '下册');
+
+  const placeholderFilteredRows = exportMod.mergeTextbookCatalogWithProgress({
+    identity: { user_id: 'u_002', display_name: '用户45284' },
+    platformItems: [],
+    localItems: [],
+    catalogsByTmId: {
+      '89ad4d7b-0000-0000-0000-000000000001': {
+        source: 'smartedu',
+        teachingmaterial_id: '89ad4d7b-0000-0000-0000-000000000001',
+        current_resource_id: null,
+        book_meta: {
+          subject: 'General',
+          subject_cn: '通用',
+          grade: null,
+          grade_cn: '',
+          edition: '',
+          curriculum_era: '',
+          volume: '',
+          title: '智慧教育平台同步教材'
+        },
+        items: [
+          {
+            resource_id: 'res-a',
+            title: '数量关系',
+            resource_type: 'national_lesson',
+            chapter_id: 'c1',
+            chapter_title: '七 复习与关联',
+            section_id: 's1',
+            section_title: '数量关系'
+          }
+        ]
+      }
+    },
+    cachedCatalogMeta: {
+      '89ad4d7b-0000-0000-0000-000000000001': {
+        username: 'stu1',
+        tmId: '89ad4d7b-0000-0000-0000-000000000001',
+        textbookTitle: '已绑定教材'
+      }
+    }
+  });
+  assert.notStrictEqual(placeholderFilteredRows[0].textbookTitle, '已绑定教材', '不得把占位符「已绑定教材」作为导出教材名');
+  assert.strictEqual(placeholderFilteredRows[0].textbookTitle, '教材 (89ad4d7b)');
+  console.log('   ✅ 教材 tag_list 对象解析与占位符屏蔽验证通过');
 
   console.log('\n🎉 所有本地导出验证测试全部通过！');
 } finally {

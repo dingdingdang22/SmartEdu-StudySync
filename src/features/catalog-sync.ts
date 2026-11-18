@@ -31,6 +31,112 @@ const GRADE_CN_TO_NUM: Record<string, number> = {
   '高一': 10, '高二年级': 11, '高二': 11, '高三年级': 12, '高三': 12
 };
 
+const GRADE_NUM_TO_CN: Record<number, string> = {
+  1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级', 5: '五年级', 6: '六年级',
+  7: '七年级', 8: '八年级', 9: '九年级',
+  10: '高一', 11: '高二', 12: '高三'
+};
+
+const TAG_DIM = {
+  subject: 'zxxxk',
+  grade: 'zxxnj',
+  stage: 'zxxxd',
+  textbook: 'zxxbb',
+  volume: 'zxxcc'
+};
+
+const SUBJECT_NAMES = new Set([
+  '语文', '数学', '英语', '物理', '化学', '生物',
+  '道德与法治', '思想政治', '政治', '历史', '地理', '科学',
+  '信息科技', '信息技术', '通用技术', '体育与健康', '音乐', '美术', '艺术', '劳动'
+]);
+
+const GRADE_NAMES = new Set([
+  '一年级', '二年级', '三年级', '四年级', '五年级', '六年级',
+  '七年级', '八年级', '九年级', '高一', '高二', '高三', '初一', '初二', '初三'
+]);
+
+function extractTagText(t: any): string {
+  if (typeof t === 'string') return t.trim();
+  if (t && typeof t === 'object') {
+    return String(t.tag_name || t.tag_title || t.name || '').trim();
+  }
+  return '';
+}
+
+export function extractBookMetaFromResources(resources: any[]): {
+  subjectCn: string;
+  gradeCn: string;
+  edition: string;
+  volume: string;
+  curriculumEra: string;
+} {
+  let subjectCn = '';
+  let gradeCn = '';
+  let edition = '';
+  let volume = '';
+  let curriculumEra = '';
+
+  for (const r of resources || []) {
+    if (!r || typeof r !== 'object') continue;
+    const cp = r.custom_properties || {};
+    if (!edition && typeof cp.edition === 'string' && cp.edition.trim()) edition = cp.edition.trim();
+    if (!volume && typeof cp.volume === 'string' && cp.volume.trim()) volume = cp.volume.trim();
+
+    const rawTags = [
+      ...(Array.isArray(r.tag_list) ? r.tag_list : []),
+      ...(Array.isArray(r.tags) ? r.tags : [])
+    ];
+    for (const t of rawTags) {
+      const dim = t && typeof t === 'object' ? String(t.tag_dimension_id || '').trim() : '';
+      const text = extractTagText(t);
+      if (!text) continue;
+
+      if (dim === TAG_DIM.subject) {
+        subjectCn = subjectCn || text;
+        continue;
+      }
+      if (dim === TAG_DIM.grade) {
+        gradeCn = gradeCn || text;
+        continue;
+      }
+      if (dim === TAG_DIM.textbook) {
+        edition = edition || text;
+        continue;
+      }
+      if (dim === TAG_DIM.volume) {
+        volume = volume || text;
+        continue;
+      }
+
+      if (SUBJECT_NAMES.has(text)) {
+        subjectCn = subjectCn || text;
+      } else if (GRADE_NAMES.has(text)) {
+        gradeCn = gradeCn || text;
+      } else if (
+        text.includes('版') || text.includes('统编') || text.includes('人教') ||
+        text.includes('外研') || text.includes('北师') || text.includes('苏教') ||
+        text.includes('沪教') || text.includes('教科')
+      ) {
+        if (!text.includes('新课标')) {
+          edition = edition || text;
+        } else {
+          curriculumEra = curriculumEra || text;
+        }
+      } else if (
+        text.includes('上册') || text.includes('下册') || text.includes('全一册') ||
+        text.includes('全册') || text.includes('必修') || text.includes('选修')
+      ) {
+        volume = volume || text;
+      } else if (text.includes('新教材') || text.includes('旧教材') || text.includes('新课标')) {
+        curriculumEra = curriculumEra || text;
+      }
+    }
+  }
+
+  return { subjectCn, gradeCn, edition, volume, curriculumEra };
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseDofeeErrorMessage(status: number, responseText: string): string {
@@ -387,32 +493,33 @@ export class CatalogSyncManager {
       ? { title: '', subject: '', grade: null, textbookVersion: '', chapterTitle: '', breadcrumb: [] }
       : SmartEduAdapter.extractCourseContext();
 
-    // 优先从教材自身资源标签提取元数据，避免不同教材串用当前页面 DOM 上下文
-    let subjectCn = '';
-    let gradeCn = '';
-    let edition = '';
-    let volume = '';
-    let curriculumEra = '';
+    // 优先从教材自身资源标签（兼容 {tag_dimension_id, tag_name} 对象与纯字符串）提取元数据
+    let { subjectCn, gradeCn, edition, volume, curriculumEra } = extractBookMetaFromResources(allResources);
 
-    for (const r of allResources) {
-      const tags = Array.isArray(r.tag_list) ? r.tag_list : [];
-      for (const t of tags) {
-        if (typeof t !== 'string') continue;
-        if (['语文', '数学', '英语', '物理', '化学', '生物', '道德与法治', '思想政治', '历史', '地理', '科学'].includes(t)) {
-          subjectCn = subjectCn || t;
-        } else if (['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '高一', '高二', '高三', '初一', '初二', '初三'].includes(t)) {
-          gradeCn = gradeCn || t;
-        } else if (t.includes('版') || t.includes('统编') || t.includes('人教') || t.includes('外研')) {
-          edition = edition || t;
-        } else if (t.includes('上册') || t.includes('下册') || t.includes('全一册') || t.includes('必修')) {
-          volume = volume || t;
-        } else if (t.includes('新教材') || t.includes('旧教材') || t.includes('新课标')) {
-          curriculumEra = curriculumEra || t;
+    // 若分片列表内精简对象未携带完整 tag_list，补拉首条课时的详情 JSON 提取完整标签
+    if ((!subjectCn || !gradeCn || !edition || !volume) && allResources.length > 0) {
+      const firstId = String(allResources[0]?.id || '').trim();
+      if (firstId && UUID_RE.test(firstId)) {
+        for (const host of CDN_HOSTS) {
+          try {
+            const detailRes = await fetchJson<any>(`${host}/zxx/ndrv2/national_lesson/resources/details/${firstId}.json`);
+            if (detailRes.ok && detailRes.data) {
+              const extra = extractBookMetaFromResources([detailRes.data]);
+              subjectCn = subjectCn || extra.subjectCn;
+              gradeCn = gradeCn || extra.gradeCn;
+              edition = edition || extra.edition;
+              volume = volume || extra.volume;
+              curriculumEra = curriculumEra || extra.curriculumEra;
+              break;
+            }
+          } catch (e) {}
         }
       }
     }
 
-    if (!gradeCn && courseContext.grade) gradeCn = `${courseContext.grade}年级`;
+    if (!gradeCn && courseContext.grade) {
+      gradeCn = GRADE_NUM_TO_CN[courseContext.grade] || `${courseContext.grade}年级`;
+    }
     if (!edition && courseContext.textbookVersion) edition = courseContext.textbookVersion;
     subjectCn = subjectCn || (courseContext.subject ? Object.keys(SUBJECT_CN_TO_EN).find(k => SUBJECT_CN_TO_EN[k] === courseContext.subject) || '通用' : '通用');
     const subject = SUBJECT_CN_TO_EN[subjectCn] || courseContext.subject || 'General';
@@ -445,7 +552,7 @@ export class CatalogSyncManager {
       }
 
       const tags = Array.isArray(r.tag_list) ? r.tag_list : [];
-      const weekTag = tags.find((t: any) => typeof t === 'string' && t.includes('周')) || '';
+      const weekTag = tags.map(extractTagText).find((txt) => txt.includes('周')) || '';
 
       const idx = sortable.length;
       sortable.push({

@@ -17,6 +17,46 @@ import { catalogSync, type FullCatalogPayload } from './catalog-sync';
 import { studyRecordSync } from './study-record-sync';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PLACEHOLDER_TEXTBOOK_TITLES = new Set(['已绑定教材', '智慧教育平台同步教材']);
+
+const SUBJECT_EN_TO_CN: Record<string, string> = {
+  Chinese: '语文',
+  Mathematics: '数学',
+  English: '英语',
+  Physics: '物理',
+  Chemistry: '化学',
+  Biology: '生物',
+  Politics: '道德与法治',
+  History: '历史',
+  Geography: '地理',
+  Science: '科学'
+};
+
+const GRADE_NUM_TO_CN: Record<number, string> = {
+  1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级', 5: '五年级', 6: '六年级',
+  7: '七年级', 8: '八年级', 9: '九年级',
+  10: '高一', 11: '高二', 12: '高三'
+};
+
+function pickNonPlaceholderTitle(...candidates: Array<string | undefined | null>): string {
+  for (const c of candidates) {
+    const s = String(c || '').trim();
+    if (s && !PLACEHOLDER_TEXTBOOK_TITLES.has(s)) return s;
+  }
+  return '';
+}
+
+function inferBookTitleFromLocalItems(tmId: string, localItems: LocalStudyRecord[]): string {
+  for (const l of localItems || []) {
+    if (String(l?.tm_id || '').trim().toLowerCase() !== tmId.toLowerCase()) continue;
+    const subj = l.subject ? (SUBJECT_EN_TO_CN[l.subject] || l.subject) : '';
+    const grade = typeof l.grade === 'number' ? (GRADE_NUM_TO_CN[l.grade] || `${l.grade}年级`) : '';
+    const ver = String(l.textbook_version || '').trim();
+    const joined = [subj, grade, ver].filter(Boolean).join(' · ');
+    if (joined) return joined;
+  }
+  return '';
+}
 
 export const STUDY_CSV_HEADERS = [
   '智慧平台账号',
@@ -247,9 +287,9 @@ export function mergeTextbookCatalogWithProgress(opts: {
     if (!cat) continue;
     const cachedTitle = String(cachedCatalogMeta[tmId]?.textbookTitle || '').trim();
     const rawCatTitle = String(cat.book_meta?.title || '').trim();
-    const textbookTitle = (rawCatTitle && rawCatTitle !== '智慧教育平台同步教材')
-      ? rawCatTitle
-      : (cachedTitle || rawCatTitle || `教材 (${tmId.slice(0, 8)})`);
+    const textbookTitle =
+      pickNonPlaceholderTitle(rawCatTitle, cachedTitle, inferBookTitleFromLocalItems(tmId, localItems)) ||
+      `教材 (${tmId.slice(0, 8)})`;
 
     for (const item of cat.items || []) {
       const ridRaw = String(item.resource_id || '').trim();
@@ -295,7 +335,9 @@ export function mergeTextbookCatalogWithProgress(opts: {
     const tmId = String(p?.tm_id || l?.tm_id || '').trim();
     const cachedTitle = tmId ? String(cachedCatalogMeta[tmId]?.textbookTitle || '').trim() : '';
     const catTitle = tmId && catalogsByTmId[tmId]?.book_meta?.title ? String(catalogsByTmId[tmId].book_meta.title).trim() : '';
-    const textbookTitle = catTitle || cachedTitle || (tmId ? `教材 (${tmId.slice(0, 8)})` : '未归属教材');
+    const textbookTitle =
+      pickNonPlaceholderTitle(catTitle, cachedTitle, tmId ? inferBookTitleFromLocalItems(tmId, localItems) : '') ||
+      (tmId ? `教材 (${tmId.slice(0, 8)})` : '未归属教材');
     const val = resolveProgressRowValues(p, l);
 
     orphanRows.push({
