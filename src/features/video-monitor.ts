@@ -6,6 +6,7 @@ import { storage } from '../core/storage';
 import { uploader } from '../core/uploader';
 import { SmartEduAdapter } from '../adapters/smartedu-adapter';
 import { catalogSync } from './catalog-sync';
+import { readSmarteduIdentity } from '../core/import-user-guard';
 
 export class VideoProgressMonitor {
   currentVideo: HTMLVideoElement | null = null;
@@ -267,6 +268,13 @@ export class VideoProgressMonitor {
       },
       resource: this.currentResourceInfo || this._collectResourceMetadata()
     };
+
+    try {
+      const identity = readSmarteduIdentity();
+      if (identity?.user_id) {
+        storage.recordLocalStudyProgress(identity.user_id, payload);
+      }
+    } catch (e) {}
 
     uploader.report(payload);
   }

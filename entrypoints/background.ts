@@ -314,6 +314,47 @@ export default defineBackground(() => {
           })
           .catch((err) => safeSend({ ok: false, error: err && err.message ? err.message : String(err) }));
         return true;
+      } else if (message.type === 'DOWNLOAD_LOCAL_CSV') {
+        if (sender && sender.id && chrome.runtime?.id && sender.id !== chrome.runtime.id) {
+          safeSend({ ok: false, error: '非法请求来源' });
+          return false;
+        }
+        const rawFilename = String(message.filename || 'study-records.csv')
+          .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+          .trim() || 'study-records.csv';
+        const rawDir = String(message.relativeDir || '')
+          .replace(/\\/g, '/')
+          .split('/')
+          .map((s) => s.replace(/[<>:"|?*\x00-\x1f]/g, '_').trim())
+          .filter((s) => s && s !== '.' && s !== '..')
+          .join('/');
+        const targetFilename = message.saveAs
+          ? rawFilename
+          : (rawDir ? `${rawDir}/${rawFilename}` : rawFilename);
+        const csvContent = String(message.csvContent || '');
+        const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(csvContent)}`;
+
+        try {
+          chrome.downloads.download(
+            {
+              url: dataUrl,
+              filename: targetFilename,
+              conflictAction: 'overwrite',
+              saveAs: Boolean(message.saveAs)
+            },
+            (downloadId) => {
+              const err = chrome.runtime.lastError;
+              if (err || typeof downloadId !== 'number') {
+                safeSend({ ok: false, error: err?.message || '浏览器下载调用失败' });
+              } else {
+                safeSend({ ok: true, downloadId, filename: targetFilename });
+              }
+            }
+          );
+        } catch (e: any) {
+          safeSend({ ok: false, error: e?.message || '浏览器下载异常' });
+        }
+        return true;
       } else if (message.type === 'BG_HTTP_REQUEST') {
         if (sender && sender.id && chrome.runtime?.id && sender.id !== chrome.runtime.id) {
           safeSend({ ok: false, status: 403, error: '非法请求来源' });

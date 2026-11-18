@@ -469,7 +469,10 @@ class StudyRecordSync {
    * ext_info 是 JSON 字符串须二次 parse；白名单提取，未知字段忽略（协议演进不炸）。
    * 返回 dofee2 导入契约 items + 本地过滤的 skipped。
    */
-  parseRecords(rawItems: any[]): {
+  parseRecords(
+    rawItems: any[],
+    opts: { allowMissingTmId?: boolean } = {}
+  ): {
     items: any[];
     skipped: Array<{ resource_id: string; tm_id?: string; reason: string }>;
     warnings: string[];
@@ -485,10 +488,10 @@ class StudyRecordSync {
       const resourceId = String(it.resource_id || '').trim();
       const resourceName = String(it.resource_name || '').trim();
 
-      // 本地过滤：非课时记录（教材入口浏览 / 教科书 PDF），2026-10-26 实测这两类只会污染 dofee 课时表
+      // 本地过滤：非课时记录（教材入口浏览 / 教科书 PDF）及错题/习题类资源
       const resourceType = String(it.resource_type || '').trim().toLowerCase();
       typeCounter[resourceType || '(空)'] = (typeCounter[resourceType || '(空)'] || 0) + 1;
-      if (NON_LESSON_RESOURCE_TYPES.has(resourceType)) {
+      if (NON_LESSON_RESOURCE_TYPES.has(resourceType) || /wrong|question|exercise/i.test(resourceType)) {
         skipped.push({ resource_id: resourceId, reason: 'non_lesson_resource' });
         continue;
       }
@@ -518,12 +521,12 @@ class StudyRecordSync {
         skipped.push({ resource_id: '', tm_id: tmId, reason: 'missing_resource_id' });
         continue;
       }
-      if (!tmId) {
+      if (!tmId && !opts.allowMissingTmId) {
         skipped.push({ resource_id: resourceId, reason: 'missing_tm_id' });
         continue;
       }
 
-      const dedupeKey = tmId + '||' + resourceId;
+      const dedupeKey = (tmId || '_') + '||' + resourceId;
       if (seen.has(dedupeKey)) {
         skipped.push({ resource_id: resourceId, tm_id: tmId, reason: 'duplicate_in_batch' });
         continue;
@@ -559,6 +562,7 @@ class StudyRecordSync {
         chapter_id: chapterId,
         sub_resource_id: subResourceId,
         resource_name: resourceName,
+        resource_type: resourceType,
         progress: Number(it.progress) || 0,
         status: mappedStatus,
         watched_seconds: 0,
@@ -573,6 +577,57 @@ class StudyRecordSync {
       );
     }
     return { items, skipped, warnings };
+  }
+
+  /**
+   * 本地导出专用拉取（仅读智慧平台课程学习域 `ykt`，不依赖 DOFFEE 登录态，绝不拉取错题与习题）
+   */
+  async fetchRecordsForLocalExport(): Promise<{ ok: boolean; items: any[]; error: string }> {
+    const ucAuth = questionSource.extractUcAuthFromStorage();
+    if (!ucAuth || !ucAuth.access_token) {
+      return { ok: false, items: [], error: '未检测到智慧平台登录态，请先在智慧平台登录学生账号' };
+    }
+
+    let lastStatus = 0;
+    let emptyOk = false;
+    let selectedWithParams = true;
+    let found = false;
+    for (const withParams of [true, false]) {
+      const url = withParams ? `${PLATFORM_STUDY_DETAILS}?page=1&limit=${PAGE_LIMIT}` : PLATFORM_STUDY_DETAILS;
+      const r = await this._getStudyDetails(url, 'ykt');
+      if (r.ok) {
+        emptyOk = true;
+        if ((typeof r.total === 'number' ? r.total : 0) > 0 || r.items.length > 0) {
+          selectedWithParams = withParams;
+          found = true;
+          break;
+        }
+      } else if (r.status) {
+        lastStatus = r.status;
+      }
+    }
+
+    if (!found) {
+      if (emptyOk) {
+        return { ok: true, items: [], error: '' };
+      }
+      if (lastStatus === 401 || lastStatus === 403) {
+        return { ok: false, items: [], error: '智慧平台登录凭证已失效，请刷新页面或重新登录后重试' };
+      }
+      return { ok: false, items: [], error: `拉取平台学习记录失败（status=${lastStatus || 0}）` };
+    }
+
+    this._accessBizType = 'ykt';
+    this._accessWithParams = selectedWithParams;
+
+    const fetched = await this.fetchAllRecords();
+    if (!fetched.ok) {
+      return { ok: false, items: [], error: fetched.error || '拉取平台学习记录失败' };
+    }
+
+    const parsed = this.parseRecords(fetched.items, { allowMissingTmId: true });
+    await this._enrichPositions(parsed.items);
+    return { ok: true, items: parsed.items, error: '' };
   }
 
   /** 客户端增量过滤：只送 platform_updated_at > 游标 的条目（首跑游标为空=全量） */

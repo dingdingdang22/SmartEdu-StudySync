@@ -7,6 +7,7 @@ import { diagnosticPanel } from '../src/ui/diagnostic-panel';
 import { videoMonitor } from '../src/features/video-monitor';
 import { catalogSync } from '../src/features/catalog-sync';
 import { studyRecordSync } from '../src/features/study-record-sync';
+import { studyRecordExport } from '../src/features/study-record-export';
 import { wrongQuestionPanel } from '../src/ui/wrong-question-panel';
 import { wrongQuestionProbe } from '../src/features/wrong-question-probe';
 import { WrongQuestionAdapter } from '../src/adapters/wrong-question-adapter';
@@ -516,6 +517,24 @@ export default defineContentScript({
             const fmt = payload?.format === 'md' || payload?.format === 'html' ? payload.format : 'json';
             wrongQuestionSync.exportExercises(fmt);
             return { ok: true };
+          }
+          case 'EXPORT_LOCAL_STUDY_CSV': {
+            try {
+              const exp = await studyRecordExport.exportCurrentAccountStudyCsv();
+              if (exp.ok) {
+                diagnosticPanel.addLog(
+                  'success',
+                  `已生成学习记录 CSV：${exp.filename}（${exp.textbookCount} 本教材，共 ${exp.recordCount} 条目录，已学 ${exp.studiedCount} 节）`
+                );
+              } else if (exp.error) {
+                diagnosticPanel.addLog('warn', `学习记录导出未完成：${exp.error}`);
+              }
+              return exp;
+            } catch (e: any) {
+              const msg = e?.message || String(e);
+              diagnosticPanel.addLog('error', `学习记录导出异常：${msg}`);
+              return { ok: false, error: msg };
+            }
           }
           case 'EX_RESCAN': {
             wrongQuestionPanel.autoExtract();

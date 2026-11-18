@@ -33,8 +33,32 @@ export interface MonitorConfig {
   syncWrongBook: boolean;
   /** 是否开启「我的习题」同步（默认关闭） */
   syncMyExercises: boolean;
+  /** 本地导出文件夹地址（相对下载子目录或已授权本地绝对路径） */
+  localExportDir?: string;
+  /** 已通过目录选择器授权的本地文件夹名称 */
+  localExportBoundName?: string;
   /** 配置最近一次主动写入的时间戳（用于防止后台标签页旧心跳回写覆盖 Popup 新配置） */
   configUpdatedAt?: number;
+}
+
+export interface LocalStudyRecord {
+  resource_id: string;
+  tm_id: string;
+  title: string;
+  subject: string;
+  grade: number | null;
+  textbook_version: string;
+  chapter_title: string;
+  url: string;
+  duration_seconds: number;
+  position_seconds: number;
+  real_played_seconds: number;
+  completion_rate: number;
+  completed: boolean;
+  last_session_id: string;
+  last_session_seconds: number;
+  first_watched_at: string;
+  updated_at: string;
 }
 
 export interface QueueItem {
@@ -57,8 +81,11 @@ const STORAGE_KEYS = {
   CONFIG: 'SMARTEDU_MONITOR_CONFIG',
   QUEUE: 'SMARTEDU_MONITOR_OUTBOX_QUEUE',
   SENT_RECORD: 'SMARTEDU_MONITOR_SENT_BUCKETS',
-  SYNCED_CATALOGS: 'SMARTEDU_MONITOR_SYNCED_CATALOGS'
+  SYNCED_CATALOGS: 'SMARTEDU_MONITOR_SYNCED_CATALOGS',
+  LOCAL_STUDY_HISTORY: 'SMARTEDU_LOCAL_STUDY_HISTORY'
 };
+
+const MAX_LOCAL_STUDY_RECORDS_PER_USER = 500;
 
 const DEFAULT_CONFIG: MonitorConfig = {
   enabled: true,
@@ -72,7 +99,9 @@ const DEFAULT_CONFIG: MonitorConfig = {
   minCompletionRate: 0.90,
   debugLog: true,
   syncWrongBook: false,
-  syncMyExercises: false
+  syncMyExercises: false,
+  localExportDir: '',
+  localExportBoundName: ''
 };
 
 export class MonitorStorage {
@@ -137,7 +166,7 @@ export class MonitorStorage {
 
     this._hydrationPromise = new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['SMARTEDU_BACKGROUND_CONFIG', STORAGE_KEYS.SYNCED_CATALOGS], (res) => {
+        chrome.storage.local.get(['SMARTEDU_BACKGROUND_CONFIG', STORAGE_KEYS.SYNCED_CATALOGS, STORAGE_KEYS.LOCAL_STUDY_HISTORY], (res) => {
           const bgCfg = res && res['SMARTEDU_BACKGROUND_CONFIG'];
           if (bgCfg && typeof bgCfg === 'object') {
             const safeBg = Object.assign({}, bgCfg);
@@ -166,6 +195,16 @@ export class MonitorStorage {
             const merged = Object.assign({}, bgCatalogs, localMap);
             this._setRaw(STORAGE_KEYS.SYNCED_CATALOGS, JSON.stringify(merged));
             console.log('[MonitorStorage] ✅ 电脑重启自愈成功：已从 chrome.storage.local 回填已同步教材缓存');
+          }
+
+          const bgStudyHistory = res && res[STORAGE_KEYS.LOCAL_STUDY_HISTORY];
+          if (bgStudyHistory && typeof bgStudyHistory === 'object') {
+            try {
+              const localRaw = this._getRaw(STORAGE_KEYS.LOCAL_STUDY_HISTORY);
+              const localMap = localRaw ? JSON.parse(localRaw) : {};
+              const mergedHistory = Object.assign({}, bgStudyHistory, localMap);
+              this._setRaw(STORAGE_KEYS.LOCAL_STUDY_HISTORY, JSON.stringify(mergedHistory));
+            } catch (e) {}
           }
 
           this._isHydrated = true;
@@ -701,6 +740,124 @@ export class MonitorStorage {
         chrome.storage.local.remove([STORAGE_KEYS.SYNCED_CATALOGS]);
       }
     } catch (e) {}
+  }
+
+  /**
+   * 获取所有已缓存的教材元数据映射（tmId -> SyncedCatalogMeta）
+   */
+  getSyncedCatalogMap(): Record<string, SyncedCatalogMeta> {
+    const out: Record<string, SyncedCatalogMeta> = {};
+    try {
+      const raw = this._getRaw(STORAGE_KEYS.SYNCED_CATALOGS);
+      const map = raw ? JSON.parse(raw) : {};
+      for (const [k, v] of Object.entries(map)) {
+        if (k === '__last' || !v || typeof v !== 'object') continue;
+        const meta = v as SyncedCatalogMeta;
+        if (meta.tmId) out[meta.tmId] = meta;
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  /**
+   * 记录智慧平台账号的本地视频学习进度（仅保存课时学习记录，不涉及错题或习题）
+   */
+  recordLocalStudyProgress(smarteduUserId: string, payload: any): void {
+    const uid = String(smarteduUserId || '').trim();
+    const res = payload?.resource || {};
+    const evt = payload?.event || {};
+    const resourceId = String(res.resourceId || '').trim();
+    if (!uid || !resourceId || resourceId === 'unknown_res') return;
+
+    try {
+      const raw = this._getRaw(STORAGE_KEYS.LOCAL_STUDY_HISTORY);
+      const allUsers: Record<string, Record<string, LocalStudyRecord>> = raw ? JSON.parse(raw) : {};
+      const userMap: Record<string, LocalStudyRecord> = (allUsers[uid] && typeof allUsers[uid] === 'object') ? { ...allUsers[uid] } : {};
+
+      const prev = userMap[resourceId];
+      const dur = Math.max(Number(evt.duration_seconds) || 0, prev?.duration_seconds || 0);
+      const sessionId = String(evt.session_id || '').trim();
+      const sessionSec = Math.max(0, Number(evt.real_played_seconds) || 0);
+
+      let totalRealSec = sessionSec;
+      if (prev) {
+        if (sessionId && prev.last_session_id === sessionId) {
+          const base = Math.max(0, (prev.real_played_seconds || 0) - (prev.last_session_seconds || 0));
+          totalRealSec = base + sessionSec;
+        } else {
+          totalRealSec = (prev.real_played_seconds || 0) + sessionSec;
+        }
+      }
+      if (dur > 0) totalRealSec = Math.min(dur, totalRealSec);
+      totalRealSec = Math.round(totalRealSec * 10) / 10;
+
+      const completionRate = Math.max(
+        Number(evt.completion_rate) || 0,
+        dur > 0 ? Math.min(1, Math.round((totalRealSec / dur) * 1000) / 1000) : 0,
+        prev?.completion_rate || 0
+      );
+      const minRate = this.getConfig().minCompletionRate || 0.90;
+      const completed = Boolean(
+        prev?.completed ||
+        evt.type === 'completed' ||
+        evt.type === 'ended' ||
+        completionRate >= minRate
+      );
+      const nowIso = String(evt.timestamp || new Date().toISOString());
+
+      userMap[resourceId] = {
+        resource_id: resourceId,
+        tm_id: String(res.tm_id || prev?.tm_id || '').trim(),
+        title: String(res.title || prev?.title || '').trim(),
+        subject: String(res.subject || prev?.subject || '').trim(),
+        grade: typeof res.grade === 'number' ? res.grade : (prev?.grade ?? null),
+        textbook_version: String(res.textbookVersion || prev?.textbook_version || '').trim(),
+        chapter_title: String(res.chapterTitle || prev?.chapter_title || '').trim(),
+        url: String(res.url || prev?.url || '').trim(),
+        duration_seconds: Math.round(dur),
+        position_seconds: Math.round(Number(evt.position_seconds) || prev?.position_seconds || 0),
+        real_played_seconds: Math.round(totalRealSec),
+        completion_rate: completionRate,
+        completed,
+        last_session_id: sessionId || prev?.last_session_id || '',
+        last_session_seconds: sessionSec,
+        first_watched_at: prev?.first_watched_at || nowIso,
+        updated_at: nowIso
+      };
+
+      // 单账号最多保留最近 500 条课时记录，防止本地存储膨胀
+      const entries = Object.entries(userMap);
+      if (entries.length > MAX_LOCAL_STUDY_RECORDS_PER_USER) {
+        entries.sort((a, b) => String(b[1].updated_at || '').localeCompare(String(a[1].updated_at || '')));
+        allUsers[uid] = Object.fromEntries(entries.slice(0, MAX_LOCAL_STUDY_RECORDS_PER_USER));
+      } else {
+        allUsers[uid] = userMap;
+      }
+
+      this._setRaw(STORAGE_KEYS.LOCAL_STUDY_HISTORY, JSON.stringify(allUsers));
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ [STORAGE_KEYS.LOCAL_STUDY_HISTORY]: allUsers });
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  /**
+   * 读取指定智慧平台账号的本地视频学习记录
+   */
+  getLocalStudyHistory(smarteduUserId: string): LocalStudyRecord[] {
+    const uid = String(smarteduUserId || '').trim();
+    if (!uid) return [];
+    try {
+      const raw = this._getRaw(STORAGE_KEYS.LOCAL_STUDY_HISTORY);
+      const allUsers = raw ? JSON.parse(raw) : {};
+      const userMap = allUsers[uid];
+      if (!userMap || typeof userMap !== 'object') return [];
+      return Object.values(userMap) as LocalStudyRecord[];
+    } catch (e) {
+      return [];
+    }
   }
 
   private _saveQueue() {

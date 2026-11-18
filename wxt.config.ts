@@ -76,7 +76,7 @@ export default defineConfig({
           128: 'icon/128.png',
         },
       },
-      permissions: ['storage', 'alarms', 'tabs'],
+      permissions: ['storage', 'alarms', 'tabs', 'downloads'],
       host_permissions: [
         'https://basic.smartedu.cn/*',
         'https://*.smartedu.cn/*',

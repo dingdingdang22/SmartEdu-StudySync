@@ -5,6 +5,18 @@ import { smarteduBinding } from '../../src/core/smartedu-binding';
 import { DISPLAY_VERSION } from '../../src/core/version';
 import type { DiagnosticSnapshot } from '../../src/ui/diagnostic-panel';
 import type { UserSwitchPrompt } from '../../src/core/import-user-guard';
+import {
+  clearDirectoryHandle,
+  doesDirMatchBoundHandle,
+  downloadCsvViaBackground,
+  isAbsoluteFsPath,
+  loadDirectoryHandle,
+  normalizeRelativeDownloadDir,
+  queryDirectoryWritePermission,
+  setPendingLocalExport,
+  supportsDirectoryPicker,
+  writeFileToDirectoryHandle
+} from '../../src/core/local-export';
 
 interface ToastState {
   type: 'info' | 'success' | 'warn' | 'error';
@@ -204,7 +216,12 @@ class PopupController {
       }
     }
     if (data.config) {
-      this.config = data.config as MonitorConfig;
+      const incoming = data.config as MonitorConfig;
+      const curTs = this.config?.configUpdatedAt || 0;
+      const inTs = incoming?.configUpdatedAt || 0;
+      if (!curTs || !inTs || inTs >= curTs) {
+        this.config = incoming;
+      }
     }
   }
 
@@ -240,6 +257,144 @@ class PopupController {
       return res;
     } finally {
       this.busyActions.delete(action);
+      this.render();
+    }
+  }
+
+  private async findTargetSmarteduTabId(): Promise<number | null> {
+    if (this.tabConnected && this.activeTabId !== null) {
+      return this.activeTabId;
+    }
+    try {
+      const tabs = await chrome.tabs.query({
+        url: ['https://basic.smartedu.cn/*', 'https://*.smartedu.cn/*']
+      });
+      for (const t of tabs || []) {
+        if (typeof t.id !== 'number') continue;
+        const snap = await sendTabMessage(t.id, { type: 'POPUP_GET_SNAPSHOT' });
+        if (snap && snap.ok) {
+          return t.id;
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  private async openLocalExportWindow(mode: 'pick' | 'save' | 'reauth'): Promise<void> {
+    const url = chrome.runtime.getURL(`/local-export.html?mode=${encodeURIComponent(mode)}`);
+    try {
+      if (chrome.windows?.create) {
+        await chrome.windows.create({
+          url,
+          type: 'popup',
+          width: 460,
+          height: 360
+        });
+        return;
+      }
+    } catch {}
+    try {
+      await chrome.tabs.create({ url });
+    } catch {}
+  }
+
+  private async saveLocalExportDirInput(rawVal: string): Promise<string> {
+    const val = String(rawVal || '').trim();
+    const matchesBound = doesDirMatchBoundHandle(val, this.config.localExportBoundName);
+    if (!matchesBound && this.config.localExportBoundName) {
+      await clearDirectoryHandle();
+      this.config = storage.saveConfig({ localExportDir: val, localExportBoundName: '' });
+    } else {
+      this.config = storage.saveConfig({ localExportDir: val });
+    }
+    return val;
+  }
+
+  private async handleExportLocalStudyCsv(): Promise<void> {
+    const dirInputEl = document.getElementById('cfg-local-export-dir') as HTMLInputElement | null;
+    const rawDir = dirInputEl ? dirInputEl.value : (this.config.localExportDir || '');
+    const dirVal = await this.saveLocalExportDirInput(rawDir);
+
+    const targetTabId = await this.findTargetSmarteduTabId();
+    if (targetTabId === null) {
+      this.showToast('warn', '请先打开国家中小学智慧教育平台页面并登录学生账号');
+      return;
+    }
+
+    this.busyActions.add('EXPORT_LOCAL_STUDY_CSV');
+    this.render();
+    try {
+      const res = await sendTabMessage(targetTabId, {
+        type: 'POPUP_RUN_ACTION',
+        action: 'EXPORT_LOCAL_STUDY_CSV',
+        payload: {}
+      });
+      if (!res || !res.ok || !res.filename || !res.csvContent) {
+        this.showToast('error', res?.error || '学习记录导出失败，请确认已登录智慧平台');
+        return;
+      }
+
+      const dirHandle = await loadDirectoryHandle();
+      if (dirHandle && doesDirMatchBoundHandle(dirVal, dirHandle.name)) {
+        const perm = await queryDirectoryWritePermission(dirHandle);
+        if (perm === 'granted') {
+          await writeFileToDirectoryHandle(dirHandle, res.filename, res.csvContent);
+          this.showToast(
+            'success',
+            `已导出 ${res.recordCount} 条目录（${res.textbookCount} 本教材，已学 ${res.studiedCount} 节）至「${dirHandle.name}/${res.filename}」`
+          );
+          return;
+        }
+        await setPendingLocalExport({
+          filename: res.filename,
+          csvContent: res.csvContent,
+          recordCount: res.recordCount || 0,
+          studiedCount: res.studiedCount || 0,
+          textbookCount: res.textbookCount || 0,
+          accountName: res.accountName || '',
+          userId: res.userId || '',
+          targetDir: dirVal || dirHandle.name,
+          createdAt: Date.now()
+        });
+        await this.openLocalExportWindow('reauth');
+        return;
+      }
+
+      if (isAbsoluteFsPath(dirVal)) {
+        await setPendingLocalExport({
+          filename: res.filename,
+          csvContent: res.csvContent,
+          recordCount: res.recordCount || 0,
+          studiedCount: res.studiedCount || 0,
+          textbookCount: res.textbookCount || 0,
+          accountName: res.accountName || '',
+          userId: res.userId || '',
+          targetDir: dirVal,
+          createdAt: Date.now()
+        });
+        await this.openLocalExportWindow('save');
+        return;
+      }
+
+      const relDir = normalizeRelativeDownloadDir(dirVal);
+      const dlRes = await downloadCsvViaBackground({
+        filename: res.filename,
+        csvContent: res.csvContent,
+        relativeDir: relDir,
+        saveAs: false
+      });
+      if (dlRes.ok) {
+        this.showToast(
+          'success',
+          `已导出 ${res.recordCount} 条目录（${res.textbookCount} 本教材，已学 ${res.studiedCount} 节）至下载目录「${dlRes.filename}」`
+        );
+      } else {
+        this.showToast('error', `导出失败: ${dlRes.error || '未知错误'}`);
+      }
+    } catch (e: any) {
+      this.showToast('error', `导出异常: ${e?.message || String(e)}`);
+    } finally {
+      this.busyActions.delete('EXPORT_LOCAL_STUDY_CSV');
       this.render();
     }
   }
@@ -307,10 +462,12 @@ class PopupController {
     const bodyEl = document.getElementById('popup-scroll-body');
     const prevScrollTop = bodyEl ? bodyEl.scrollTop : 0;
 
-    // 保留尚未提交的输入框草稿
+    // 保留尚未提交的输入框草稿（配置输入仅在用户正在编辑聚焦时保留，避免覆盖外部更新）
+    const activeId = document.activeElement?.id;
     const draftUser = (document.getElementById('new-slot-user') as HTMLInputElement | null)?.value;
     const draftPwd = (document.getElementById('new-slot-pwd') as HTMLInputElement | null)?.value;
-    const draftUrl = (document.getElementById('cfg-url') as HTMLInputElement | null)?.value;
+    const draftUrl = activeId === 'cfg-url' ? (document.getElementById('cfg-url') as HTMLInputElement | null)?.value : undefined;
+    const draftLocalDir = activeId === 'cfg-local-export-dir' ? (document.getElementById('cfg-local-export-dir') as HTMLInputElement | null)?.value : undefined;
 
     const currentSmartedu = this.diagSnap?.currentSmartedu || null;
     const vs = this.diagSnap?.videoState;
@@ -377,6 +534,7 @@ class PopupController {
     restoreInput('new-slot-user', draftUser);
     restoreInput('new-slot-pwd', draftPwd);
     restoreInput('cfg-url', draftUrl);
+    restoreInput('cfg-local-export-dir', draftLocalDir);
 
     this.bindEvents();
   }
@@ -527,6 +685,27 @@ class PopupController {
           <button class="btn btn-secondary" id="flush-btn" ${!this.tabConnected ? 'disabled' : ''}>冲刷 (${diag?.queueLength ?? 0})</button>
           ${config.dofeeJwtToken ? '<button class="btn btn-danger" id="logout-btn">退出当前激活</button>' : ''}
         </div>
+        <div class="sub-divider"></div>
+        <div class="sub-label">本地学习记录导出（教材目录与观看进度 CSV，不含错题/习题）</div>
+        <input type="text" class="input-field" id="cfg-local-export-dir" placeholder="填写本地文件夹地址，如 D:\\学习记录 或 smartedu-records" value="${esc(config.localExportDir || '')}">
+        <div class="export-path-hint">${esc((() => {
+          const dirVal = String(config.localExportDir || '').trim();
+          const boundName = String(config.localExportBoundName || '').trim();
+          if (boundName && doesDirMatchBoundHandle(dirVal, boundName)) {
+            return `📁 已授权本地目录「${boundName}」，将直接导出 <智慧平台账号>.csv 至该文件夹`;
+          }
+          if (isAbsoluteFsPath(dirVal)) {
+            return '💡 填写了磁盘绝对路径，点击「导出记录」或「选择目录」授权一次即可直接写入';
+          }
+          return `📥 将导出至浏览器下载目录/${normalizeRelativeDownloadDir(dirVal)}/<智慧平台账号>.csv`;
+        })())}</div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" id="save-local-dir-btn">保存路径</button>
+          ${supportsDirectoryPicker() ? '<button class="btn btn-secondary" id="pick-local-dir-btn">📁 选择目录</button>' : ''}
+          <button class="btn btn-teal" id="export-local-csv-btn" ${this.busyActions.has('EXPORT_LOCAL_STUDY_CSV') ? 'disabled' : ''}>
+            ${this.busyActions.has('EXPORT_LOCAL_STUDY_CSV') ? '导出中...' : '📥 导出记录 (CSV)'}
+          </button>
+        </div>
       </div>
 
       <!-- 学习记录同步 -->
@@ -626,6 +805,27 @@ class PopupController {
       this.config = storage.logout();
       this.showToast('info', '已挂起当前激活账号（槽位绑定关系仍保留）');
       void this.notifyTabConfigChanged();
+    });
+
+    $('save-local-dir-btn')?.addEventListener('click', async () => {
+      const val = ($('cfg-local-export-dir') as HTMLInputElement | null)?.value || '';
+      const saved = await this.saveLocalExportDirInput(val);
+      if (isAbsoluteFsPath(saved)) {
+        this.showToast('success', `本地导出路径已保存: ${saved}`);
+      } else {
+        this.showToast('success', `本地导出路径已保存: 下载目录/${normalizeRelativeDownloadDir(saved)}`);
+      }
+      void this.notifyTabConfigChanged();
+    });
+
+    $('pick-local-dir-btn')?.addEventListener('click', async () => {
+      const val = ($('cfg-local-export-dir') as HTMLInputElement | null)?.value || '';
+      await this.saveLocalExportDirInput(val);
+      await this.openLocalExportWindow('pick');
+    });
+
+    $('export-local-csv-btn')?.addEventListener('click', () => {
+      void this.handleExportLocalStudyCsv();
     });
 
     // 错题/习题同步开关

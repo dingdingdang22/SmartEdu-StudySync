@@ -322,32 +322,45 @@ export class CatalogSyncManager {
   /**
    * 从智慧教育公开 CDN 拉取章节树和分片并构造全量载荷
    */
-  async fetchFullCatalogFromCdn(tmId: string, currentResourceId: string | null): Promise<FullCatalogPayload> {
-    const treeUrl = `https://s-file-1.ykt.cbern.com.cn/zxx/ndrs/national_lesson/trees/${tmId}.json`;
-    const treeRes = await fetchJson<any[]>(treeUrl);
-    if (!treeRes.ok || !Array.isArray(treeRes.data)) {
-      throw new Error(`拉取教材章节树失败: ${treeRes.error || '数据格式异常'}`);
+  async fetchFullCatalogFromCdn(
+    tmId: string,
+    currentResourceId: string | null,
+    opts: { ignorePageContext?: boolean } = {}
+  ): Promise<FullCatalogPayload> {
+    let treeNodes: any[] | null = null;
+    let lastTreeErr = '';
+    for (const host of CDN_HOSTS) {
+      const treeUrl = `${host}/zxx/ndrs/national_lesson/trees/${tmId}.json`;
+      const treeRes = await fetchJson<any[]>(treeUrl);
+      if (treeRes.ok && Array.isArray(treeRes.data)) {
+        treeNodes = treeRes.data;
+        break;
+      }
+      lastTreeErr = treeRes.error || '数据格式异常';
     }
-    const treeNodes = treeRes.data;
+    if (!treeNodes) {
+      throw new Error(`拉取教材章节树失败: ${lastTreeErr || '数据格式异常'}`);
+    }
 
-    // 建立树状节点映射
-    const nodeMap = new Map<string, { chapterId: string; chapterTitle: string; sectionId: string; sectionTitle: string }>();
+    // 建立树状节点映射（同时记录章节树顺序，便于目录有序呈现）
+    const nodeMap = new Map<string, { chapterId: string; chapterTitle: string; sectionId: string; sectionTitle: string; order: number }>();
+    let treeOrder = 0;
     for (const ch of treeNodes) {
       const chId = String(ch.id || '').trim();
       const chTitle = String(ch.title || '默认章节').trim();
-      nodeMap.set(chId, { chapterId: chId, chapterTitle: chTitle, sectionId: chId, sectionTitle: chTitle });
+      nodeMap.set(chId, { chapterId: chId, chapterTitle: chTitle, sectionId: chId, sectionTitle: chTitle, order: treeOrder++ });
 
       if (Array.isArray(ch.child_nodes)) {
         for (const sec of ch.child_nodes) {
           const secId = String(sec.id || '').trim();
           const secTitle = String(sec.title || chTitle).trim();
-          nodeMap.set(secId, { chapterId: chId, chapterTitle: chTitle, sectionId: secId, sectionTitle: secTitle });
+          nodeMap.set(secId, { chapterId: chId, chapterTitle: chTitle, sectionId: secId, sectionTitle: secTitle, order: treeOrder++ });
 
           if (Array.isArray(sec.child_nodes)) {
             for (const sub of sec.child_nodes) {
               const subId = String(sub.id || '').trim();
               const subTitle = String(sub.title || secTitle).trim();
-              nodeMap.set(subId, { chapterId: chId, chapterTitle: chTitle, sectionId: secId, sectionTitle: `${secTitle} - ${subTitle}` });
+              nodeMap.set(subId, { chapterId: chId, chapterTitle: chTitle, sectionId: secId, sectionTitle: `${secTitle} - ${subTitle}`, order: treeOrder++ });
             }
           }
         }
@@ -355,24 +368,29 @@ export class CatalogSyncManager {
     }
 
     // 拉取课时清单分片 parts.json
-    const partsUrl = `https://s-file-1.ykt.cbern.com.cn/zxx/ndrs/national_lesson/teachingmaterials/${tmId}/resources/parts.json`;
-    const partsRes = await fetchJson<string[]>(partsUrl);
     let allResources: any[] = [];
-    if (partsRes.ok && Array.isArray(partsRes.data)) {
-      for (const partUrl of partsRes.data) {
-        const chunkRes = await fetchJson<any[]>(partUrl);
-        if (chunkRes.ok && Array.isArray(chunkRes.data)) {
-          allResources.push(...chunkRes.data);
+    for (const host of CDN_HOSTS) {
+      const partsUrl = `${host}/zxx/ndrs/national_lesson/teachingmaterials/${tmId}/resources/parts.json`;
+      const partsRes = await fetchJson<string[]>(partsUrl);
+      if (partsRes.ok && Array.isArray(partsRes.data)) {
+        for (const partUrl of partsRes.data) {
+          const chunkRes = await fetchJson<any[]>(partUrl);
+          if (chunkRes.ok && Array.isArray(chunkRes.data)) {
+            allResources.push(...chunkRes.data);
+          }
         }
+        break;
       }
     }
 
-    const courseContext = SmartEduAdapter.extractCourseContext();
+    const courseContext = opts.ignorePageContext
+      ? { title: '', subject: '', grade: null, textbookVersion: '', chapterTitle: '', breadcrumb: [] }
+      : SmartEduAdapter.extractCourseContext();
 
-    // 汇总元数据
+    // 优先从教材自身资源标签提取元数据，避免不同教材串用当前页面 DOM 上下文
     let subjectCn = '';
-    let gradeCn = courseContext.grade ? `${courseContext.grade}年级` : '';
-    let edition = courseContext.textbookVersion || '';
+    let gradeCn = '';
+    let edition = '';
     let volume = '';
     let curriculumEra = '';
 
@@ -394,13 +412,15 @@ export class CatalogSyncManager {
       }
     }
 
+    if (!gradeCn && courseContext.grade) gradeCn = `${courseContext.grade}年级`;
+    if (!edition && courseContext.textbookVersion) edition = courseContext.textbookVersion;
     subjectCn = subjectCn || (courseContext.subject ? Object.keys(SUBJECT_CN_TO_EN).find(k => SUBJECT_CN_TO_EN[k] === courseContext.subject) || '通用' : '通用');
     const subject = SUBJECT_CN_TO_EN[subjectCn] || courseContext.subject || 'General';
     const grade = GRADE_CN_TO_NUM[gradeCn] || courseContext.grade || null;
-    const title = [subjectCn, gradeCn, edition, volume].filter(Boolean).join(' · ') || courseContext.title || '智慧教育平台同步教材';
+    const title = [subjectCn === '通用' ? '' : subjectCn, gradeCn, edition, volume].filter(Boolean).join(' · ') || courseContext.title || '智慧教育平台同步教材';
 
-    // 格式化课时列表
-    const items: CatalogItemPayload[] = [];
+    // 格式化课时列表并按章节树顺序排列
+    const sortable: Array<{ item: CatalogItemPayload; order: number; idx: number }> = [];
     const seenIds = new Set<string>();
 
     for (const r of allResources) {
@@ -410,7 +430,7 @@ export class CatalogSyncManager {
 
       const rawType = String(r.resource_type_code || r.custom_properties?.prom_resouce_type || 'national_lesson').trim();
       const paths: string[] = Array.isArray(r.chapter_paths) ? r.chapter_paths : [];
-      let matched: { chapterId: string; chapterTitle: string; sectionId: string; sectionTitle: string } | null = null;
+      let matched: { chapterId: string; chapterTitle: string; sectionId: string; sectionTitle: string; order: number } | null = null;
 
       for (const p of paths) {
         const segs = p.split('/');
@@ -427,17 +447,28 @@ export class CatalogSyncManager {
       const tags = Array.isArray(r.tag_list) ? r.tag_list : [];
       const weekTag = tags.find((t: any) => typeof t === 'string' && t.includes('周')) || '';
 
-      items.push({
-        resource_id: resId,
-        title: String(r.title || `课时 ${items.length + 1}`).trim(),
-        resource_type: rawType,
-        chapter_id: matched?.chapterId || 'ch_0',
-        chapter_title: matched?.chapterTitle || '默认章节',
-        section_id: matched?.sectionId || 'sec_0',
-        section_title: matched?.sectionTitle || '默认小节',
-        week_tag: weekTag
+      const idx = sortable.length;
+      sortable.push({
+        order: matched ? matched.order : Number.MAX_SAFE_INTEGER,
+        idx,
+        item: {
+          resource_id: resId,
+          title: String(r.title || `课时 ${idx + 1}`).trim(),
+          resource_type: rawType,
+          chapter_id: matched?.chapterId || 'ch_0',
+          chapter_title: matched?.chapterTitle || '默认章节',
+          section_id: matched?.sectionId || 'sec_0',
+          section_title: matched?.sectionTitle || '默认小节',
+          week_tag: weekTag
+        }
       });
     }
+
+    sortable.sort((a, b) => (a.order - b.order) || (a.idx - b.idx));
+    const items: CatalogItemPayload[] = sortable.map((s, idx) => ({
+      ...s.item,
+      sort_order: idx + 1
+    }));
 
     return {
       source: 'smartedu',
