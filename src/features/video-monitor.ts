@@ -45,14 +45,26 @@ export class VideoProgressMonitor {
   }
 
   _notifyState(extra: Record<string, any> = {}) {
-    if (this.currentResourceInfo && (!this.currentResourceInfo.title || this.currentResourceInfo.title === '节目段落')) {
+    if (
+      this.currentResourceInfo &&
+      (!this.currentResourceInfo.title ||
+        this.currentResourceInfo.title === '节目段落' ||
+        !Array.isArray(this.currentResourceInfo.breadcrumb) ||
+        this.currentResourceInfo.breadcrumb.length === 0)
+    ) {
       const ctx = SmartEduAdapter.extractCourseContext();
-      if (ctx.title) {
+      if (ctx.title || (ctx.breadcrumb && ctx.breadcrumb.length > 0)) {
         this.currentResourceInfo = {
           ...this.currentResourceInfo,
-          title: ctx.title,
+          title: (!this.currentResourceInfo.title || this.currentResourceInfo.title === '节目段落')
+            ? (ctx.title || this.currentResourceInfo.title)
+            : this.currentResourceInfo.title,
           subject: this.currentResourceInfo.subject || ctx.subject,
-          grade: this.currentResourceInfo.grade || ctx.grade
+          grade: this.currentResourceInfo.grade || ctx.grade,
+          textbookVersion: this.currentResourceInfo.textbookVersion || ctx.textbookVersion,
+          breadcrumb: (Array.isArray(this.currentResourceInfo.breadcrumb) && this.currentResourceInfo.breadcrumb.length > 0)
+            ? this.currentResourceInfo.breadcrumb
+            : ctx.breadcrumb
         };
       }
     }

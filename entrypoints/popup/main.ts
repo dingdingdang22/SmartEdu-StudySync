@@ -1,7 +1,6 @@
 import './style.css';
 import { storage, type MonitorConfig } from '../../src/core/storage';
 import { uploader } from '../../src/core/uploader';
-import { authManager } from '../../src/core/auth';
 import { smarteduBinding } from '../../src/core/smartedu-binding';
 import { DISPLAY_VERSION } from '../../src/core/version';
 import type { DiagnosticSnapshot } from '../../src/ui/diagnostic-panel';
@@ -32,6 +31,45 @@ function esc(s: unknown): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+const SUBJECT_CN_MAP: Record<string, string> = {
+  Chinese: '语文',
+  Mathematics: '数学',
+  English: '英语',
+  Physics: '物理',
+  Chemistry: '化学',
+  Biology: '生物',
+  Politics: '道德与法治',
+  History: '历史',
+  Geography: '地理'
+};
+
+const GRADE_CN_MAP: Record<number, string> = {
+  1: '一年级', 2: '二年级', 3: '三年级', 4: '四年级', 5: '五年级', 6: '六年级',
+  7: '七年级', 8: '八年级', 9: '九年级',
+  10: '高一', 11: '高二', 12: '高三'
+};
+
+function formatCourseMeta(info: any): string {
+  if (!info) return '-';
+  const title = String(info.title || '').trim();
+  const navSkip = new Set(['首页', '课程教学', '学生自主学习', '同步课程', '课程学习', '国家中小学智慧教育平台']);
+  if (Array.isArray(info.breadcrumb) && info.breadcrumb.length > 0) {
+    const tags = info.breadcrumb
+      .map((t: any) => String(t || '').trim())
+      .filter((t: string) => t && !navSkip.has(t) && t !== title);
+    if (tags.length > 0) {
+      return tags.join(' · ');
+    }
+  }
+  const gradeNum = info.grade ? Number(info.grade) : 0;
+  const stage = gradeNum ? (gradeNum <= 6 ? '小学' : gradeNum <= 9 ? '初中' : '高中') : '';
+  const gradeCn = gradeNum ? (GRADE_CN_MAP[gradeNum] || `${gradeNum}年级`) : '';
+  const subjectCn = info.subject ? (SUBJECT_CN_MAP[info.subject] || String(info.subject)) : '';
+  const ver = String(info.textbookVersion || '').trim();
+  const parts = [stage, gradeCn, subjectCn, ver].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : '-';
 }
 
 function sendRuntimeMessage(payload: any): Promise<any> {
@@ -72,7 +110,6 @@ function sendTabMessage(tabId: number, payload: any): Promise<any> {
 
 class PopupController {
   private rootEl: HTMLElement;
-  private advOpen = false;
 
   private activeTabId: number | null = null;
   private activeTabUrl = '';
@@ -253,9 +290,7 @@ class PopupController {
         titleEl.textContent = nextTitle;
         titleEl.title = nextTitle;
       }
-      const sub = vs.resourceInfo.subject || '通用';
-      const grade = vs.resourceInfo.grade ? `${vs.resourceInfo.grade}年级` : '';
-      if (metaEl) metaEl.textContent = `${sub} ${grade}`.trim() || '无';
+      if (metaEl) metaEl.textContent = formatCourseMeta(vs.resourceInfo);
     }
     if (progEl) progEl.textContent = `${vs.currentTime}s / ${vs.duration}s`;
     if (realEl) realEl.textContent = `${vs.realPlayedSeconds} 秒`;
@@ -287,7 +322,6 @@ class PopupController {
     const draftUser = (document.getElementById('new-slot-user') as HTMLInputElement | null)?.value;
     const draftPwd = (document.getElementById('new-slot-pwd') as HTMLInputElement | null)?.value;
     const draftUrl = (document.getElementById('cfg-url') as HTMLInputElement | null)?.value;
-    const draftToken = (document.getElementById('cfg-token') as HTMLInputElement | null)?.value;
 
     const currentSmartedu = this.diagSnap?.currentSmartedu || null;
     const vs = this.diagSnap?.videoState;
@@ -360,7 +394,6 @@ class PopupController {
     restoreInput('new-slot-user', draftUser);
     restoreInput('new-slot-pwd', draftPwd);
     restoreInput('cfg-url', draftUrl);
-    restoreInput('cfg-token', draftToken);
 
     this.bindEvents();
   }
@@ -390,9 +423,7 @@ class PopupController {
       : '#16a34a';
 
     const courseTitle = vs?.resourceInfo?.title || '-';
-    const sub = vs?.resourceInfo?.subject || '';
-    const grade = vs?.resourceInfo?.grade ? `${vs.resourceInfo.grade}年级` : '';
-    const courseMeta = `${sub} ${grade}`.trim() || '-';
+    const courseMeta = formatCourseMeta(vs?.resourceInfo);
 
     let slotsHtml = '';
     for (let i = 0; i < 3; i++) {
@@ -464,12 +495,6 @@ class PopupController {
         <div class="info-row"><span>真实有效学习:</span><span class="info-val" id="real-time" style="color:#16a34a;">${vs?.realPlayedSeconds || 0} 秒</span></div>
       </div>
 
-      <!-- 教材目录自动同步 -->
-      <div class="section">
-        <div class="section-title">教材待学目录同步 (播放视频自动发送)</div>
-        <div class="info-row"><span>当前教材:</span><span class="info-val" title="${esc(diag?.catalogState.bookText || '-')}">${esc(diag?.catalogState.bookText || '-')}</span></div>
-      </div>
-
       <!-- 错题本与我的习题同步 (可选) -->
       <div class="section">
         <div class="section-title">错题本与我的习题同步 (可选)</div>
@@ -524,16 +549,6 @@ class PopupController {
           <button class="btn btn-primary" id="save-url-btn">保存域名</button>
           <button class="btn btn-secondary" id="flush-btn" ${!this.tabConnected ? 'disabled' : ''}>冲刷 (${diag?.queueLength ?? 0})</button>
           ${config.dofeeJwtToken ? '<button class="btn btn-danger" id="logout-btn">退出当前激活</button>' : ''}
-        </div>
-
-        <span class="adv-toggle-btn" id="adv-toggle">⚙️ 手工指定 JWT 令牌 (调试专用) ${this.advOpen ? '▴' : '▾'}</span>
-        <div class="adv-panel" id="adv-panel" style="display:${this.advOpen ? 'block' : 'none'};">
-          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">手动注入 JWT:</div>
-          <input type="password" class="input-field" id="cfg-token" placeholder="自定义 JWT 令牌" value="${esc(config.dofeeJwtToken || '')}">
-          <div class="btn-group">
-            <button class="btn btn-secondary" id="save-cfg-btn">保存 Token</button>
-            <button class="btn btn-danger" id="clear-btn" ${!this.tabConnected ? 'disabled' : ''}>清空队列</button>
-          </div>
         </div>
       </div>
 
@@ -629,12 +644,6 @@ class PopupController {
 
     // 学习监控 Tab 事件
     $('flush-btn')?.addEventListener('click', () => this.runTabAction('FLUSH_QUEUE'));
-    $('clear-btn')?.addEventListener('click', () => this.runTabAction('CLEAR_QUEUE'));
-
-    $('adv-toggle')?.addEventListener('click', () => {
-      this.advOpen = !this.advOpen;
-      this.render();
-    });
 
     $('save-url-btn')?.addEventListener('click', async () => {
       const val = ($('cfg-url') as HTMLInputElement | null)?.value.trim().replace(/\/+$/, '') || '';
@@ -656,16 +665,6 @@ class PopupController {
       }
       this.config = storage.saveConfig({ dofeeApiBase: val });
       this.showToast('success', `API 地址已更新: ${val}`);
-      void this.notifyTabConfigChanged();
-    });
-
-    $('save-cfg-btn')?.addEventListener('click', () => {
-      const u = ($('cfg-url') as HTMLInputElement | null)?.value.trim() || '';
-      const t = ($('cfg-token') as HTMLInputElement | null)?.value.trim() || '';
-      this.config = storage.saveConfig({ dofeeApiBase: u, dofeeJwtToken: t });
-      const expMs = t ? authManager.getTokenExpirationMs(t) : null;
-      const tip = expMs ? ` (有效期至: ${new Date(expMs).toLocaleString()})` : '';
-      this.showToast('success', '配置已保存' + tip);
       void this.notifyTabConfigChanged();
     });
 
