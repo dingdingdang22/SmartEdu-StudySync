@@ -238,8 +238,7 @@ class PopupController {
   private patchLiveMonitorNodes(): boolean {
     if (this.activeTab !== 'monitor' || this.unbindModal || this.switchModal) return false;
     const statusEl = document.getElementById('monitor-status');
-    const logBox = document.getElementById('log-box');
-    if (!statusEl || !logBox || !this.diagSnap) return false;
+    if (!statusEl || !this.diagSnap) return false;
 
     const vs = this.diagSnap.videoState;
     if (!vs.hasVideo) {
@@ -253,7 +252,6 @@ class PopupController {
       statusEl.style.color = '#16a34a';
     }
 
-    const resIdEl = document.getElementById('res-id');
     const titleEl = document.getElementById('course-title');
     const metaEl = document.getElementById('course-meta');
     const progEl = document.getElementById('play-progress');
@@ -261,8 +259,11 @@ class PopupController {
     const flushBtn = document.getElementById('flush-btn');
 
     if (vs.resourceInfo) {
-      if (resIdEl) resIdEl.textContent = vs.resourceInfo.resourceId || '未识别';
-      if (titleEl) titleEl.textContent = vs.resourceInfo.title || '获取中...';
+      if (titleEl) {
+        const nextTitle = vs.resourceInfo.title || '获取中...';
+        titleEl.textContent = nextTitle;
+        titleEl.title = nextTitle;
+      }
       const sub = vs.resourceInfo.subject || '通用';
       const grade = vs.resourceInfo.grade ? `${vs.resourceInfo.grade}年级` : '';
       if (metaEl) metaEl.textContent = `${sub} ${grade}`.trim() || '无';
@@ -280,11 +281,6 @@ class PopupController {
     }
     if (wrongCountEl) wrongCountEl.textContent = `${this.diagSnap.wrongSync.syncedCount} 道`;
     if (wrongTimeEl) wrongTimeEl.textContent = this.diagSnap.wrongSync.lastSyncTime;
-
-    logBox.innerHTML = this.diagSnap.logs
-      .map((item) => `<div class="log-item log-${esc(item.type)}">${item.time !== '--:--:--' ? `[${esc(item.time)}] ` : ''}${esc(item.message)}</div>`)
-      .join('');
-    logBox.scrollTop = logBox.scrollHeight;
 
     // 同步上下文栏点状态
     const ctxDot = document.getElementById('ctx-dot');
@@ -389,9 +385,6 @@ class PopupController {
     restoreInput('cfg-url', draftUrl);
     restoreInput('cfg-token', draftToken);
 
-    const logBox = document.getElementById('log-box');
-    if (logBox) logBox.scrollTop = logBox.scrollHeight;
-
     this.bindEvents();
   }
 
@@ -419,7 +412,6 @@ class PopupController {
       ? '#ca8a04'
       : '#16a34a';
 
-    const resId = vs?.resourceInfo?.resourceId || '-';
     const courseTitle = vs?.resourceInfo?.title || '-';
     const sub = vs?.resourceInfo?.subject || '';
     const grade = vs?.resourceInfo?.grade ? `${vs.resourceInfo.grade}年级` : '';
@@ -481,28 +473,6 @@ class PopupController {
       }
     }
 
-    const studyRep = diag?.studyReport;
-    let studyRepText = '尚未同步';
-    let studyRepColor = '#0f172a';
-    if (studyRep?.rep) {
-      const rep = studyRep.rep;
-      const parts = [
-        `${studyRep.label}｜batch ${rep.batch_id || '-'}`,
-        `拉取 ${rep.fetched_total ?? 0} / 有效 ${rep.parsed_ok ?? 0} / 发送 ${rep.sent ?? 0}`,
-        `更新 ${rep.upserted ?? 0} / 无变化 ${rep.unchanged ?? 0} / 完成翻转 ${rep.completed_flipped ?? 0}`,
-        `跳过 ${(rep.skipped && rep.skipped.length) || rep.skipped_count || 0}`
-      ];
-      if (rep.first_full) parts.push('首次全量');
-      if (rep.cursor_advanced) parts.push('游标已推进');
-      if (rep.offline_queued) parts.push(`离线队列 ${rep.offline_queued}`);
-      studyRepText = parts.join('｜');
-      studyRepColor = rep.ok ? '#16a34a' : '#b91c1c';
-    }
-
-    const logsHtml = (diag?.logs || [{ time: '--:--:--', type: 'muted', message: this.tabConnected ? '[等待日志...]' : '[请先切换至智慧平台页面以查看页面监控流水]' }])
-      .map((item) => `<div class="log-item log-${esc(item.type)}">${item.time !== '--:--:--' ? `[${esc(item.time)}] ` : ''}${esc(item.message)}</div>`)
-      .join('');
-
     const wrongStatusText = diag ? diag.wrongSync.statusText : (config.syncWrongBook || config.syncMyExercises ? '已开启（打开智慧平台页运行）' : '已关闭 (请在上方勾选开启)');
     const wrongStatusColor = diag ? diag.wrongSync.statusColor : '#64748b';
 
@@ -511,7 +481,6 @@ class PopupController {
       <div class="section">
         <div class="section-title">当前课时状态</div>
         <div class="info-row"><span>状态:</span><span class="info-val" id="monitor-status" style="color:${vsStatusColor};">${esc(vsStatusText)}</span></div>
-        <div class="info-row"><span>资源标识:</span><span class="info-val" id="res-id">${esc(resId)}</span></div>
         <div class="info-row"><span>课程标题:</span><span class="info-val" id="course-title" title="${esc(courseTitle)}">${esc(courseTitle)}</span></div>
         <div class="info-row"><span>学科/年级:</span><span class="info-val" id="course-meta">${esc(courseMeta)}</span></div>
         <div class="info-row"><span>播放进度:</span><span class="info-val" id="play-progress">${vs?.currentTime || 0}s / ${vs?.duration || 0}s</span></div>
@@ -521,13 +490,7 @@ class PopupController {
       <!-- 教材目录自动同步 -->
       <div class="section">
         <div class="section-title">教材待学目录同步 (播放视频自动发送)</div>
-        <div class="info-row"><span>目录状态:</span><span class="info-val" style="color:${diag?.catalogState.statusColor || '#64748b'};">${esc(diag?.catalogState.statusText || (this.tabConnected ? '播放任意视频自动触发' : '需打开智慧平台页'))}</span></div>
         <div class="info-row"><span>当前教材:</span><span class="info-val" title="${esc(diag?.catalogState.bookText || '-')}">${esc(diag?.catalogState.bookText || '-')}</span></div>
-        <div class="btn-group" style="margin-top:6px;">
-          <button class="btn btn-secondary" id="sync-catalog-btn" ${!this.tabConnected || this.busyActions.has('SYNC_CATALOG') ? 'disabled' : ''}>
-            ${this.busyActions.has('SYNC_CATALOG') ? '检测与同步中...' : '↻ 重新同步当前教材目录'}
-          </button>
-        </div>
       </div>
 
       <!-- 错题本与我的习题同步 (可选) -->
@@ -576,10 +539,9 @@ class PopupController {
         <div style="margin-top:8px;">${slotsHtml}</div>
       </div>
 
-      <!-- dofee 网站与高级选项 -->
+      <!-- DOFFEE网站域名 / API 地址 -->
       <div class="section">
-        <div class="section-title">dofee 网站与高级选项</div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:4px;">dofee 网站域名 / API 地址:</div>
+        <div class="section-title">DOFFEE网站域名 / API 地址</div>
         <input type="text" class="input-field" id="cfg-url" placeholder="请输入自建服务端地址，如 https://your-domain.example" value="${esc(config.dofeeApiBase || '')}">
         <div class="btn-group">
           <button class="btn btn-primary" id="save-url-btn">保存域名</button>
@@ -602,18 +564,6 @@ class PopupController {
       <div class="section">
         <div class="section-title">学习记录同步</div>
         <div class="info-row"><span>同步游标:</span><span class="info-val" style="color:${diag?.studyCursor.color || '#64748b'};">${esc(diag?.studyCursor.text || (this.tabConnected ? '检测中...' : '需打开智慧平台页'))}</span></div>
-        <div class="btn-group">
-          <button class="btn btn-secondary" id="study-health-btn" ${!this.tabConnected || this.busyActions.has('STUDY_HEALTH') ? 'disabled' : ''}>一键体检</button>
-          <button class="btn btn-secondary" id="study-dryrun-btn" ${!this.tabConnected || this.busyActions.has('STUDY_DRY_RUN') ? 'disabled' : ''}>dry_run 预览</button>
-          <button class="btn btn-primary" id="study-sync-btn" ${!this.tabConnected || this.busyActions.has('STUDY_SYNC') ? 'disabled' : ''}>正式同步</button>
-        </div>
-        <div class="info-row" style="margin-top:6px;"><span>最近报告:</span><span class="info-val" style="color:${studyRepColor};" title="${esc(studyRepText)}">${esc(studyRepText)}</span></div>
-      </div>
-
-      <!-- 上报流水 -->
-      <div class="section">
-        <div class="section-title">实时上报流水</div>
-        <div class="log-box" id="log-box">${logsHtml}</div>
       </div>
     `;
   }
@@ -915,12 +865,8 @@ class PopupController {
     });
 
     // 学习监控 Tab 事件
-    $('sync-catalog-btn')?.addEventListener('click', () => this.runTabAction('SYNC_CATALOG'));
     $('flush-btn')?.addEventListener('click', () => this.runTabAction('FLUSH_QUEUE'));
     $('clear-btn')?.addEventListener('click', () => this.runTabAction('CLEAR_QUEUE'));
-    $('study-health-btn')?.addEventListener('click', () => this.runTabAction('STUDY_HEALTH'));
-    $('study-dryrun-btn')?.addEventListener('click', () => this.runTabAction('STUDY_DRY_RUN'));
-    $('study-sync-btn')?.addEventListener('click', () => this.runTabAction('STUDY_SYNC'));
 
     $('adv-toggle')?.addEventListener('click', () => {
       this.advOpen = !this.advOpen;
@@ -1016,7 +962,7 @@ class PopupController {
     });
     newSlotBindBtn?.addEventListener('click', async () => {
       if (!this.config?.dofeeApiBase?.trim()) {
-        this.showToast('warn', '请先在下方「dofee 网站与高级选项」中配置并保存服务端域名');
+        this.showToast('warn', '请先在下方「DOFFEE网站域名 / API 地址」中配置并保存服务端域名');
         return;
       }
       const u = ($('new-slot-user') as HTMLInputElement | null)?.value.trim() || '';

@@ -244,21 +244,22 @@ export class DiagnosticPanel {
       ? `${currentCtx.subject || ''} ${currentCtx.grade ? currentCtx.grade + '年级' : ''}`.trim()
       : '';
     const lastCatalog = storage.getLastSyncedCatalog(config.dofeeUsername);
-    const isSubjectMismatch = Boolean(currentCtx.subject && lastCatalog && lastCatalog.title && (
-      (currentCtx.subject === 'Chemistry' && !lastCatalog.title.includes('化学')) ||
-      (currentCtx.subject === 'Physics' && !lastCatalog.title.includes('物理')) ||
-      (currentCtx.subject === 'English' && !lastCatalog.title.includes('英语')) ||
-      (currentCtx.subject === 'Chinese' && !lastCatalog.title.includes('语文')) ||
-      (currentCtx.subject === 'Mathematics' && !lastCatalog.title.includes('数学')) ||
-      (currentCtx.subject === 'History' && !lastCatalog.title.includes('历史')) ||
-      (currentCtx.subject === 'Politics' && !lastCatalog.title.includes('道德与法治') && !lastCatalog.title.includes('思想政治'))
+    const catalogTitle = String(lastCatalog?.textbookTitle || lastCatalog?.title || '').trim();
+    const isSubjectMismatch = Boolean(currentCtx.subject && catalogTitle && (
+      (currentCtx.subject === 'Chemistry' && !catalogTitle.includes('化学')) ||
+      (currentCtx.subject === 'Physics' && !catalogTitle.includes('物理')) ||
+      (currentCtx.subject === 'English' && !catalogTitle.includes('英语')) ||
+      (currentCtx.subject === 'Chinese' && !catalogTitle.includes('语文')) ||
+      (currentCtx.subject === 'Mathematics' && !catalogTitle.includes('数学')) ||
+      (currentCtx.subject === 'History' && !catalogTitle.includes('历史')) ||
+      (currentCtx.subject === 'Politics' && !catalogTitle.includes('道德与法治') && !catalogTitle.includes('思想政治'))
     ));
 
     const defaultCatalogStatus = (lastCatalog && !isSubjectMismatch)
       ? `已同步 (${lastCatalog.totalLessons || 0} 节)`
       : '播放任意视频自动触发';
-    const defaultCatalogBook = (lastCatalog && !isSubjectMismatch)
-      ? (lastCatalog.title || lastCatalog.tmId || '-')
+    const defaultCatalogBook = (lastCatalog && !isSubjectMismatch && catalogTitle)
+      ? catalogTitle
       : (currentMeta || '-');
 
     return {
