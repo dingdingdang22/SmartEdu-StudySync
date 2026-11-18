@@ -121,26 +121,30 @@ export const SmartEduAdapter = {
       breadcrumb: []
     };
 
+    const invalidTitleSet = new Set([
+      '节目段落',
+      '课程目录',
+      '教学设计',
+      '学习任务单',
+      '课后练习',
+      '资源简介',
+      '国家中小学智慧教育平台',
+      '国家中小学课程资源'
+    ]);
+    const cleanTitle = (raw: string | null | undefined): string => {
+      const t = (raw || '').replace(/\s+/g, ' ').trim();
+      if (!t || invalidTitleSet.has(t)) return '';
+      return t;
+    };
+
     try {
-      const activeLessonEl = document.querySelector(
-        '.active .resource-title, .active .lesson-name, [class*="active"] [class*="title"], .current-lesson, [class*="selected"] [class*="name"]'
-      );
-      if (activeLessonEl && activeLessonEl.textContent) {
-        context.title = activeLessonEl.textContent.trim();
-      }
+      // 优先读取页面主标题，避免被播放器/侧栏的「节目段落」等 tab active 节点误命中
+      const mainTitleEl = document.querySelector('h1, .lesson-title, [class*="title-text"], .course-title, [class*="course_title"]');
+      context.title = cleanTitle(mainTitleEl?.textContent);
 
       if (!context.title) {
-        const titleEl = document.querySelector('h1, .lesson-title, [class*="title-text"], .course-title, [class*="course_title"]');
-        if (titleEl && titleEl.textContent) {
-          context.title = titleEl.textContent.trim();
-        }
-      }
-
-      if (!context.title && document.title) {
-        const parts = document.title.split('-');
-        if (parts.length > 0) {
-          context.title = parts[0].trim();
-        }
+        const activeLessonEl = document.querySelector('.active .resource-title, .active .lesson-name, .current-lesson');
+        context.title = cleanTitle(activeLessonEl?.textContent);
       }
 
       const breadcrumbElements = document.querySelectorAll(
@@ -153,6 +157,20 @@ export const SmartEduAdapter = {
           context.breadcrumb = tags;
           this._parseTagsIntoContext(tags, context);
           break;
+        }
+      }
+
+      if (!context.title && context.breadcrumb.length > 0) {
+        const lastTag = cleanTitle(context.breadcrumb[context.breadcrumb.length - 1]);
+        if (lastTag && lastTag !== '首页' && lastTag !== '课程教学' && lastTag !== '学生自主学习') {
+          context.title = lastTag;
+        }
+      }
+
+      if (!context.title && document.title) {
+        const parts = document.title.split('-');
+        if (parts.length > 0) {
+          context.title = cleanTitle(parts[0]);
         }
       }
 

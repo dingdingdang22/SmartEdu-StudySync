@@ -5,7 +5,6 @@ import { authManager } from '../../src/core/auth';
 import { smarteduBinding } from '../../src/core/smartedu-binding';
 import { DISPLAY_VERSION } from '../../src/core/version';
 import type { DiagnosticSnapshot } from '../../src/ui/diagnostic-panel';
-import type { WrongQuestionSnapshot, UploadState } from '../../src/ui/wrong-question-panel';
 import type { UserSwitchPrompt } from '../../src/core/import-user-guard';
 
 interface ToastState {
@@ -73,8 +72,6 @@ function sendTabMessage(tabId: number, payload: any): Promise<any> {
 
 class PopupController {
   private rootEl: HTMLElement;
-  private activeTab: 'monitor' | 'wrong' = 'monitor';
-  private tabInitialized = false;
   private advOpen = false;
 
   private activeTabId: number | null = null;
@@ -83,7 +80,6 @@ class PopupController {
   private streamPort: chrome.runtime.Port | null = null;
 
   private diagSnap: DiagnosticSnapshot | null = null;
-  private wrongSnap: WrongQuestionSnapshot | null = null;
   private config: MonitorConfig = storage.getConfig();
 
   private isUpdateReady = false;
@@ -171,16 +167,9 @@ class PopupController {
         this.pendingVersion = this.diagSnap.pendingVersion || this.pendingVersion || '最新版';
       }
     }
-    if (data.wrongQuestion) {
-      this.wrongSnap = data.wrongQuestion as WrongQuestionSnapshot;
-      if (!this.tabInitialized && this.wrongSnap.isWrongOrExercisePage) {
-        this.activeTab = 'wrong';
-      }
-    }
     if (data.config) {
       this.config = data.config as MonitorConfig;
     }
-    this.tabInitialized = true;
   }
 
   private showToast(type: ToastState['type'], text: string): void {
@@ -236,7 +225,7 @@ class PopupController {
    * 返回 false 表示需要走全量 render（例如当前不在 monitor tab 或节点不存在）。
    */
   private patchLiveMonitorNodes(): boolean {
-    if (this.activeTab !== 'monitor' || this.unbindModal || this.switchModal) return false;
+    if (this.unbindModal || this.switchModal) return false;
     const statusEl = document.getElementById('monitor-status');
     if (!statusEl || !this.diagSnap) return false;
 
@@ -315,8 +304,6 @@ class PopupController {
       ? `激活: ${this.config.dofeeUsername}`
       : '未激活 dofee';
 
-    const showWrongDot = !!this.wrongSnap?.isWrongOrExercisePage;
-
     this.rootEl.innerHTML = `
       <div class="card-top-bar ${this.isUpdateReady ? 'update-ready' : ''}">
         <div class="top-version-badge">
@@ -346,16 +333,6 @@ class PopupController {
         <span style="font-weight:600;color:${this.config.dofeeUsername ? '#15803d' : '#d97706'};">${esc(activeAccountLabel)}</span>
       </div>
 
-      <div class="tab-bar">
-        <button class="tab-btn ${this.activeTab === 'monitor' ? 'active' : ''}" id="tab-monitor">
-          <span>📊 学习监控</span>
-        </button>
-        <button class="tab-btn ${this.activeTab === 'wrong' ? 'active' : ''}" id="tab-wrong">
-          <span>📝 错题 / 习题</span>
-          ${showWrongDot ? '<span class="tab-dot" title="当前页面为错题本或我的习题"></span>' : ''}
-        </button>
-      </div>
-
       ${this.toast ? `
         <div class="toast-banner ${esc(this.toast.type)}">
           <span>${esc(this.toast.text)}</span>
@@ -364,7 +341,7 @@ class PopupController {
       ` : ''}
 
       <div class="panel-body" id="popup-scroll-body">
-        ${this.activeTab === 'monitor' ? this.renderMonitorTab() : this.renderWrongTab()}
+        ${this.renderMonitorTab()}
       </div>
 
       ${this.renderUnbindModal()}
@@ -568,212 +545,6 @@ class PopupController {
     `;
   }
 
-  private renderWrongTab(): string {
-    if (!this.tabConnected || !this.wrongSnap) {
-      return `
-        <div class="empty-guide">
-          <div style="font-weight:700;color:#0f172a;margin-bottom:6px;">未连接到智慧平台试题页面</div>
-          <div>请先在浏览器中打开智慧教育平台的「错题本」或「我的习题」页面，再点击顶部插件图标使用探测与同步功能。</div>
-        </div>
-      `;
-    }
-
-    const ws = this.wrongSnap;
-    if (!ws.isWrongOrExercisePage) {
-      return `
-        <div class="empty-guide">
-          <div style="font-weight:700;color:#0f172a;margin-bottom:6px;">当前不在「错题本」或「我的习题」页面</div>
-          <div>您当前位于普通智慧平台页面。如需手动提取或查看试题探针，请先进入错题本或我的习题页。</div>
-        </div>
-      `;
-    }
-
-    const rep = ws.report || null;
-    const isEx = ws.isExercisePage;
-    const sync = ws.sync || {};
-    const cfg = this.config;
-    const syncWrongEnabled = cfg.syncWrongBook === true;
-    const syncExEnabled = cfg.syncMyExercises === true;
-    const isDofeeReady = !!(cfg.dofeeApiBase && cfg.dofeeJwtToken);
-    const activeEnabled = isEx ? syncExEnabled : syncWrongEnabled;
-    const toggleName = isEx ? '同步我的习题' : '同步错题本';
-
-    const dofeeHint = !activeEnabled
-      ? `<div class="warn-box">提示：「${toggleName}」开关当前已关闭，不会自动抓取或同步。如需使用，请在「学习监控」页签中勾选开启。</div>`
-      : !isDofeeReady
-      ? '<div class="warn-box">提示：dofee 未登录，无法入库。请先在「学习监控」页签绑定或登录。</div>'
-      : '<div class="info-row"><span>入库方式:</span><span class="info-val">解析后自动静默上传；双树映射通过才入库</span></div>';
-
-    if (isEx) {
-      const exResults = sync.exerciseResults || [];
-      const exErrors = sync.exerciseErrors || [];
-      const exDone = sync.exerciseDone || exResults.length;
-      const exTotal = sync.exerciseTotal || (rep?.candidateIds ? rep.candidateIds.length : 0);
-      const exRunning = !!sync.exerciseRunning;
-      const exPct = exTotal ? Math.round((exDone / exTotal) * 100) : (exResults.length ? 100 : 0);
-      const withKp = exResults.filter((x: any) => x.meta?.knowledge_points?.length > 0).length;
-      const withDiff = exResults.filter((x: any) => x.meta && (x.meta.difficulty_raw || x.meta.difficulty)).length;
-      const up = ws.uploadState;
-      const exRunStatus = exRunning
-        ? '正在抓取…'
-        : exResults.length
-        ? (up ? `已自动上传（入库 ${(up.inserted || 0) + (up.updated || 0)} / 暂存 ${up.staged || 0}）` : (syncExEnabled ? '已就绪（尚未上传）' : '已解析（开关已关闭）'))
-        : (syncExEnabled ? '监听页面中' : '同步我的习题已关闭');
-
-      const exErrHtml = exErrors.length
-        ? '<div class="err-box"><b>解析失败 ' + exErrors.length + ' 题</b>（多为非题目 ID / 未上 CDN / 已下架）：<br>'
-          + exErrors.slice(0, 8).map((e: any) => '· ' + esc(String(e.id || '').slice(0, 12)) + '… [' + esc(e.stage || '?') + '] ' + esc(String(e.reason || '').slice(0, 90))).join('<br>')
-          + (exErrors.length > 8 ? '<br>… 其余 ' + (exErrors.length - 8) + ' 条见导出 JSON' : '')
-          + '</div>'
-        : '';
-
-      return `
-        <div class="section">
-          <div class="section-title" style="color:#0f766e;">智慧习题探针（公开 CDN 链路）</div>
-          <div class="info-row"><span>当前模式:</span><span class="info-val">我的习题</span></div>
-          <div class="info-row"><span>捕获题目 ID:</span><span class="info-val">${exTotal} 个</span></div>
-          <div class="info-row"><span>已解析试题:</span><span class="info-val" style="color:#15803d;">${exResults.length} / ${exTotal}</span></div>
-          ${exErrors.length ? `<div class="info-row"><span>解析失败:</span><span class="info-val" style="color:#b91c1c;">${exErrors.length} 题</span></div>` : ''}
-          <div class="info-row"><span>知识点/难度:</span><span class="info-val" style="color:#15803d;">知识点 ${withKp} 题 ｜ 难度 ${withDiff} 题</span></div>
-          <div class="info-row"><span>运行状态:</span><span class="info-val">${esc(exRunStatus)}</span></div>
-          ${dofeeHint}
-          ${exErrHtml}
-          <div class="bar bar-ex"><i style="width:${Math.max(3, Math.min(100, exPct))}%"></i></div>
-          <div class="btn-group">
-            <button class="btn btn-teal" id="ex-json-btn">导出 JSON</button>
-            <button class="btn btn-teal-soft" id="ex-md-btn">导出 MD</button>
-            <button class="btn btn-teal-soft" id="ex-html-btn">导出 HTML</button>
-            <button class="btn btn-secondary" id="ex-rescan-btn">重新扫描</button>
-            <button class="btn btn-secondary" id="ex-upload-btn" ${exResults.length && syncExEnabled && !this.busyActions.has('EX_UPLOAD') ? '' : 'disabled'}>
-              ${this.busyActions.has('EX_UPLOAD') ? '同步中…' : '立即同步到 dofee'}
-            </button>
-          </div>
-          ${ws.errorText ? `<div class="err-box">${esc(ws.errorText)}</div>` : ''}
-          <textarea class="preview-box" id="wrong-preview" readonly placeholder="已提取的试题预览">${esc(ws.exercisePreview)}</textarea>
-          <div class="note">自动环节：开启「同步我的习题」并进入「我的习题」页面后自动抓取题目、增量去重，解析完成后自动静默上传至 dofee。</div>
-        </div>
-      `;
-    }
-
-    // 错题本模式
-    const count = rep && Array.isArray(rep.questions) ? rep.questions.length : 0;
-    const subj = rep?.subject || '-';
-    const grade = rep?.grade ? `${rep.grade}年级` : '-';
-    const blockCount = rep ? (rep.totalCandidateBlocks || 0) : 0;
-    const warnings = rep && Array.isArray(rep.warnings) ? rep.warnings : [];
-    const running = !!sync.running || this.busyActions.has('WRONG_RUN_EXTRACT');
-    const hasResult = !!sync.summary;
-    const uploadLabel = ws.uploadState?.phase === 'busy' ? (ws.uploadState.text || '同步中…') : '立即同步到 dofee';
-
-    return `
-      <div class="section">
-        <div class="section-title" style="color:#92400e;">DOM 探测状态</div>
-        <div class="info-row"><span>探测题数:</span><span class="info-val">${count}</span></div>
-        <div class="info-row"><span>候选题块:</span><span class="info-val">${blockCount}</span></div>
-        <div class="info-row"><span>学科 / 年级:</span><span class="info-val">${esc(subj)} / ${esc(grade)}</span></div>
-        ${dofeeHint}
-        ${warnings.length ? `<div class="warn-box">${esc(warnings.join('；'))}</div>` : ''}
-      </div>
-
-      <div class="section">
-        <div class="section-title" style="color:#92400e;">错题提取（含标准答案）</div>
-        ${this.renderSyncBlock(sync)}
-        <div class="btn-group" style="margin-top:8px;">
-          <button class="btn btn-amber" id="wrong-run-btn" ${running ? 'disabled' : ''}>${running ? '提取中…' : '提取错题（含答案）'}</button>
-          <button class="btn btn-secondary" id="wrong-copy-sync-btn" ${hasResult ? '' : 'disabled'}>复制 dofee 载荷</button>
-          <button class="btn btn-secondary" id="wrong-copy-btn">复制探测报告</button>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title" style="color:#92400e;">同步到 dofee（自动静默上传 / 手动重传）</div>
-        ${this.renderUploadBlock(ws.uploadState)}
-        <div class="btn-group" style="margin-top:8px;">
-          <button class="btn btn-amber" id="wrong-upload-btn" ${ws.canUploadWrong && syncWrongEnabled && !this.busyActions.has('WRONG_UPLOAD') ? '' : 'disabled'}>${esc(uploadLabel)}</button>
-        </div>
-        ${ws.errorText ? `<div class="err-box">${esc(ws.errorText)}</div>` : ''}
-        <textarea class="preview-box" id="wrong-preview" readonly placeholder="结果 JSON 会显示在这里">${esc(ws.syncResult || (rep ? JSON.stringify(rep, null, 2) : ''))}</textarea>
-        <div class="note">自动环节：开启「同步错题本」并进入错题本页面触发接口后自动提取，解析完成后自动静默上传至 dofee。</div>
-      </div>
-    `;
-  }
-
-  private renderSyncBlock(s: any): string {
-    if (!s || !s.phase) {
-      return '<div class="note">错题提取：尚未运行。点下方按钮开始（首次会拉取该教材题库索引）。</div>';
-    }
-    const phaseText = ({
-      waiting: '等待错题接口…',
-      index: '拉取题库索引…',
-      extract: '提取题目与答案…',
-      answer: '抽取题包答案…',
-      done: '已完成',
-      error: '出错'
-    } as Record<string, string>)[s.phase] || s.phase;
-    const pct = s.total ? Math.round((s.done / s.total) * 100) : (s.phase === 'index' ? 5 : 0);
-
-    let html = `
-      <div class="info-row"><span>状态:</span><span class="info-val">${esc(phaseText)}</span></div>
-      <div class="info-row"><span>进度:</span><span class="info-val">${s.done || 0} / ${s.total || 0}</span></div>
-      <div class="bar"><i style="width:${Math.max(3, Math.min(100, pct))}%"></i></div>
-    `;
-    if (s.summary) {
-      const sum = s.summary;
-      html += `
-        <div class="info-row"><span>成功/失败:</span><span class="info-val">${sum.total} / ${sum.errors}</span></div>
-        <div class="info-row"><span>含标准答案:</span><span class="info-val">${sum.withAnswer}</span></div>
-        <div class="info-row"><span>含文字解析:</span><span class="info-val">${sum.withTextAnalysis}</span></div>
-        <div class="info-row"><span>含知识点:</span><span class="info-val">${sum.withKnowledge}</span></div>
-      `;
-    }
-    if (s.indexStats) {
-      html += `<div class="info-row"><span>题库索引:</span><span class="info-val">${s.indexStats.parts} 片 / ${s.indexStats.questions} 题</span></div>`;
-    }
-    if (s.sniffer) {
-      const sn = s.sniffer;
-      const snText = !sn.found
-        ? '未接通 ⚠'
-        : sn.via === 'dom'
-        ? `已接通 · 捕获 ${sn.captured} 条 / 错题 ${sn.count} 条`
-        : sn.via === 'bridge'
-        ? `经消息桥 · 错题 ${sn.count} 条`
-        : `已注入 · 捕获 ${sn.captured} 条 / 错题 ${sn.count} 条`;
-      html += `<div class="info-row"><span>嗅探器:</span><span class="info-val" style="color:${sn.found ? '#0f172a' : '#b91c1c'};">${esc(snText)}</span></div>`;
-    }
-    if (s.elapsedMs) {
-      html += `<div class="info-row"><span>耗时:</span><span class="info-val">${(s.elapsedMs / 1000).toFixed(1)} s</span></div>`;
-    }
-    return html;
-  }
-
-  private renderUploadBlock(u: UploadState | null): string {
-    if (!u) {
-      return '<div class="note">解析完成后会自动静默上传至 dofee（双树映射通过才真正入库，未过映射的暂存待处理）。</div>';
-    }
-    const implHtml = !u.implVersion
-      ? ''
-      : u.stale
-      ? `<div class="err-box">⚠ 线上 dofee 端点未更新：${esc(u.implVersion)}（缺少 ${esc((u.missingImpl || []).join('、'))}）</div>`
-      : `<div class="info-row"><span>端点版本:</span><span class="info-val" style="color:#15803d;">${esc(u.implVersion)}（已是最新）</span></div>`;
-
-    if (u.phase === 'busy') {
-      return `<div class="info-row"><span>状态:</span><span class="info-val">${esc(u.text || '处理中…')}</span></div>`;
-    }
-    if (u.phase === 'done') {
-      const stagedRow = (u.staged || 0) > 0
-        ? `<div class="info-row"><span>暂存待映射:</span><span class="info-val" style="color:#b45309;">${u.staged}（需双树映射通过才入库）</span></div>`
-        : '';
-      return `
-        <div class="info-row"><span>入库:</span><span class="info-val">${u.inserted || 0} 新增 / ${u.updated || 0} 更新</span></div>
-        ${stagedRow}
-        <div class="info-row"><span>跳过:</span><span class="info-val" style="color:${u.skipped ? '#b91c1c' : '#0f172a'};">${u.skipped || 0}</span></div>
-        ${implHtml}
-        <div class="note ok">${esc(u.text || '')}</div>
-      `;
-    }
-    return `<div class="err-box">${esc(u.text || '同步失败')}</div>${implHtml}`;
-  }
-
   private renderUnbindModal(): string {
     if (!this.unbindModal) return '';
     const m = this.unbindModal;
@@ -815,14 +586,6 @@ class PopupController {
   private bindEvents(): void {
     const $ = (id: string) => document.getElementById(id);
 
-    $('tab-monitor')?.addEventListener('click', () => {
-      this.activeTab = 'monitor';
-      this.render();
-    });
-    $('tab-wrong')?.addEventListener('click', () => {
-      this.activeTab = 'wrong';
-      this.render();
-    });
     $('toast-close')?.addEventListener('click', () => {
       this.toast = null;
       this.render();
@@ -1090,40 +853,6 @@ class PopupController {
       this.switchModal = null;
       await this.runTabAction(retryAction, { ...retryPayload, confirmedUserSwitch: true });
     });
-
-    // 错题 / 习题 Tab 事件
-    $('wrong-run-btn')?.addEventListener('click', () => this.runTabAction('WRONG_RUN_EXTRACT'));
-    $('wrong-upload-btn')?.addEventListener('click', () => this.runTabAction('WRONG_UPLOAD'));
-    $('ex-upload-btn')?.addEventListener('click', () => this.runTabAction('EX_UPLOAD'));
-    $('ex-rescan-btn')?.addEventListener('click', () => this.runTabAction('EX_RESCAN'));
-    $('ex-json-btn')?.addEventListener('click', () => this.runTabAction('EX_EXPORT', { format: 'json' }));
-    $('ex-md-btn')?.addEventListener('click', () => this.runTabAction('EX_EXPORT', { format: 'md' }));
-    $('ex-html-btn')?.addEventListener('click', () => this.runTabAction('EX_EXPORT', { format: 'html' }));
-
-    $('wrong-copy-btn')?.addEventListener('click', async () => {
-      const text = this.wrongSnap?.report ? JSON.stringify(this.wrongSnap.report, null, 2) : '';
-      if (!text) return;
-      await this.copyText(text, '探测报告已复制 ✓');
-    });
-    $('wrong-copy-sync-btn')?.addEventListener('click', async () => {
-      const text = this.wrongSnap?.syncResult || '';
-      if (!text) return;
-      await this.copyText(text, 'dofee 载荷已复制 ✓');
-    });
-  }
-
-  private async copyText(text: string, successTip: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-      this.showToast('success', successTip);
-    } catch {
-      const preview = document.getElementById('wrong-preview') as HTMLTextAreaElement | null;
-      if (preview) {
-        preview.value = text;
-        preview.select();
-        this.showToast('info', '已写入下方文本框，请按 Ctrl+C 复制');
-      }
-    }
   }
 }
 

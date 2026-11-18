@@ -45,6 +45,17 @@ export class VideoProgressMonitor {
   }
 
   _notifyState(extra: Record<string, any> = {}) {
+    if (this.currentResourceInfo && (!this.currentResourceInfo.title || this.currentResourceInfo.title === '节目段落')) {
+      const ctx = SmartEduAdapter.extractCourseContext();
+      if (ctx.title) {
+        this.currentResourceInfo = {
+          ...this.currentResourceInfo,
+          title: ctx.title,
+          subject: this.currentResourceInfo.subject || ctx.subject,
+          grade: this.currentResourceInfo.grade || ctx.grade
+        };
+      }
+    }
     if (this.onStateChangeCallback) {
       const state = {
         hasVideo: !!this.currentVideo,

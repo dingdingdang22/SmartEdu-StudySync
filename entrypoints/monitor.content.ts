@@ -173,6 +173,12 @@ export default defineContentScript({
             } else {
               wrongQuestionPanel.destroy();
             }
+            if (SmartEduAdapter.isStudentSelfStudyPage()) {
+              setTimeout(() => {
+                void studyRecordSync.autoSync('page_init');
+                void catalogSync.syncCurrentLessonCatalog({ guardMode: 'silent' });
+              }, 1200);
+            }
           }, 300);
         };
         window.addEventListener('popstate', onRouteChange);
