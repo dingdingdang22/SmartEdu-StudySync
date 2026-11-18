@@ -295,16 +295,6 @@ class PopupController {
     if (realEl) realEl.textContent = `${vs.realPlayedSeconds} 秒`;
     if (flushBtn) flushBtn.textContent = `冲刷 (${this.diagSnap.queueLength})`;
 
-    const wrongStatusEl = document.getElementById('wrong-sync-status');
-    const wrongCountEl = document.getElementById('wrong-sync-count');
-    const wrongTimeEl = document.getElementById('wrong-sync-time');
-    if (wrongStatusEl) {
-      wrongStatusEl.textContent = this.diagSnap.wrongSync.statusText;
-      wrongStatusEl.style.color = this.diagSnap.wrongSync.statusColor;
-    }
-    if (wrongCountEl) wrongCountEl.textContent = `${this.diagSnap.wrongSync.syncedCount} 道`;
-    if (wrongTimeEl) wrongTimeEl.textContent = this.diagSnap.wrongSync.lastSyncTime;
-
     // 同步上下文栏点状态
     const ctxDot = document.getElementById('ctx-dot');
     if (ctxDot) {
@@ -474,9 +464,6 @@ class PopupController {
       }
     }
 
-    const wrongStatusText = diag ? diag.wrongSync.statusText : (config.syncWrongBook || config.syncMyExercises ? '已开启（打开智慧平台页运行）' : '已关闭 (请在上方勾选开启)');
-    const wrongStatusColor = diag ? diag.wrongSync.statusColor : '#64748b';
-
     return `
       <!-- 课时状态 -->
       <div class="section">
@@ -501,9 +488,6 @@ class PopupController {
             <span>同步我的习题</span>
           </label>
         </div>
-        <div class="info-row"><span>同步状态:</span><span class="info-val" id="wrong-sync-status" style="color:${wrongStatusColor};">${esc(wrongStatusText)}</span></div>
-        <div class="info-row"><span>已同步题数:</span><span class="info-val" id="wrong-sync-count">${diag ? diag.wrongSync.syncedCount : 0} 道</span></div>
-        <div class="info-row"><span>最近同步:</span><span class="info-val" id="wrong-sync-time">${esc(diag ? diag.wrongSync.lastSyncTime : '-')}</span></div>
       </div>
 
       <!-- 多用户绑定 -->
